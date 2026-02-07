@@ -20,3 +20,10 @@ mybatis-plus:
     db-config:
       # 数据库配置
       id-type: auto
+
+# MinIO核心配置（自定义命名空间，方便通过@ConfigurationProperties注入）
+minio:
+  url: http://127.0.0.1:9005
+  username: root
+  password: 12345678
+  bucketName: img
