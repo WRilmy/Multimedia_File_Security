@@ -10,5 +10,5 @@ public interface UserService {
 
     User selectByUsername(String username);
 
-    Result register(UserRegister user);
+    Result register(UserRegister user) throws Exception;
 }

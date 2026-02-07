@@ -43,7 +43,7 @@ public class LoginCheckInterceptor implements HandlerInterceptor {
 
         try {
             Claims claims = JWTUtil.parseJWT(jwt);
-            Integer id = Integer.valueOf(claims.get("id").toString());
+            Long id = Long.valueOf(claims.get("id").toString());
             UserThreadLocal.setCurrentId(id);
             log.info("当前用户id为：{}",UserThreadLocal.getCurrentId());
             log.info("解析令牌成功");

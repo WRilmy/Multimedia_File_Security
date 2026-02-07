@@ -52,11 +52,10 @@ public class UserController {
      * @return Result
      */
     @PostMapping("/register")
-    public Result register(@RequestBody UserRegister user) {
+    public Result register(@RequestBody UserRegister user) throws Exception {
         if (userService.selectByUsername(user.getUsername()) != null){
             return Result.error(500,"用户名已存在");
         }
-        userService.register(user);
-        return Result.success();
+        return userService.register(user);
     }
 }

@@ -7,6 +7,7 @@ import org.example.multimedia_file_security.dto.UserRegister;
 import org.example.multimedia_file_security.mapper.UserMapper;
 import org.example.multimedia_file_security.pojo.User;
 import org.example.multimedia_file_security.service.UserService;
+import org.example.multimedia_file_security.utils.AESUtil;
 import org.example.multimedia_file_security.utils.BCryptPasswordUtil;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,9 @@ import org.springframework.util.StringUtils;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 
+import static org.example.multimedia_file_security.utils.AESUtil.encryptPrivateKey;
+import static org.example.multimedia_file_security.utils.Sm2Util.generateKeyPair;
+
 @Service
 public class UserServiceImpl implements UserService {
     @Autowired
@@ -25,7 +29,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public User login(UserLogin user) {
         User newUser = userMapper.selectByUsername(user.getUsername());
-        if (BCryptPasswordUtil.verifyPassword(user.getPassword(),newUser.getPassword())) {
+        if (BCryptPasswordUtil.verifyPassword(user.getPassword(),newUser.getPasswordHash())) {
             return newUser;
         }
         else return null;
@@ -33,12 +37,12 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User selectByUsername(String username) {
-        return null;
+        return userMapper.selectByUsername(username);
     }
 
     @Transactional(rollbackFor = Exception.class)
     @Override
-    public Result register(UserRegister userRegister) {
+    public Result register(UserRegister userRegister) throws Exception {
         // 1. 基本参数校验
         if (!validateParams(userRegister)) {
             return Result.error(500,"参数不合法");
@@ -49,15 +53,22 @@ public class UserServiceImpl implements UserService {
             return Result.error(500,"用户名或邮箱已存在");
         }
 
-        // 3. 密码加密（使用BCrypt，比MD5更安全）
+        // 3. 生成SM2秘钥对
+        String[] keyPair = generateKeyPair();
+
+        // 3. 密码和私钥加密（密码使用BCrypt，私钥使用AES）
         String encryptedPassword  = BCryptPasswordUtil.encryptPassword(userRegister.getPassword());
+        String encryptedPrivateKey = encryptPrivateKey(keyPair[1]);
 
         // 4. 数据转换与填充
         User user = new User();
         BeanUtils.copyProperties(userRegister, user);
-        user.setPassword(encryptedPassword);
+        user.setPasswordHash(encryptedPassword);
         user.setRole("USER"); // 默认角色
         user.setStatus("1"); // 默认状态：激活
+        user.setSm2PublicKey(keyPair[0]);
+        user.setEncryptedSm2PrivateKey(encryptedPrivateKey);
+        user.setSm2KeyCreatedAt(Timestamp.valueOf(LocalDateTime.now()));
         user.setCreatedAt(Timestamp.valueOf(LocalDateTime.now()));
         user.setUpdatedAt(Timestamp.valueOf(LocalDateTime.now()));
 
