@@ -84,13 +84,15 @@ public class Sm2Util {
     /**
      * 使用SM2公钥验证签名
      */
-    public static boolean verifyWithSm2(String data, String sign, PublicKey publicKey) throws Exception {
+    public static boolean verifyWithSm2(String data, String sign, String publicKey) throws Exception {
         Signature signature = Signature.getInstance(
                 GMObjectIdentifiers.sm2sign_with_sm3.toString(),
                 BouncyCastleProvider.PROVIDER_NAME
         );
 
-        signature.initVerify(publicKey);
+        PublicKey publicKey2 = base64ToPublicKey(publicKey);
+
+        signature.initVerify(publicKey2);
         signature.update(data.getBytes());
 
         return signature.verify(Base64.getDecoder().decode(sign));

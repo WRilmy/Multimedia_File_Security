@@ -1,38 +1,26 @@
 package org.example.multimedia_file_security.controller;
 
-import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.example.multimedia_file_security.dto.FileDownloadDTO;
 import org.example.multimedia_file_security.dto.Result;
 import org.example.multimedia_file_security.service.FileService;
 import org.example.multimedia_file_security.threadLocal.UserThreadLocal;
-import org.example.multimedia_file_security.utils.MinioUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 @RestController
 @Slf4j
 public class FileController {
 
-    @Resource
-    private MinioUtil minioUtil;
-
     @Autowired
     private FileService fileService;
-
-    // 测试文件上传接口
-    @PostMapping("/file/upload")
-    public String uploadFile(@RequestParam("file") MultipartFile file) {
-        if (file.isEmpty()) {
-            return "请选择要上传的文件";
-        }
-        // 调用工具类上传，自动创建桶（若不存在）
-        String fileUrl = minioUtil.putObject(file);
-        return fileUrl == null ? "文件上传失败" : "文件上传成功，访问路径：" + fileUrl;
-    }
 
     /**
      * 文件上传接口
@@ -43,7 +31,6 @@ public class FileController {
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<?> uploadFile(
             @RequestParam("file") MultipartFile file,
-
             @RequestParam(value = "encryptionMode", defaultValue = "FULL")
             String encryptionMode) {
 
@@ -75,6 +62,57 @@ public class FileController {
         } catch (Exception e) {
             log.error("文件上传异常", e);
             return Result.error(500, "系统异常: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/download/{fileId}")
+    public ResponseEntity<byte[]> downloadFile(
+            @PathVariable Long fileId) {
+
+        try {
+            // 1. 获取当前用户ID
+            Long userId = UserThreadLocal.getCurrentId();
+            if (userId == null) {
+                return ResponseEntity.status(401)
+                        .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                        .body("用户未登录".getBytes());
+            }
+
+            // 2. 调用服务层下载文件
+            Result result = fileService.downloadFile(fileId, userId);
+
+            if (result.getCode() != 200) {
+                return ResponseEntity.status(result.getCode())
+                        .body(result.getMessage().getBytes());
+            }
+
+            // 3. 获取下载结果
+            FileDownloadDTO downloadResult = (FileDownloadDTO)result.getData();
+
+            // 4. 准备HTTP响应
+            String filename = downloadResult.getOriginalFilename();
+            String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8)
+                    .replaceAll("\\+", "%20");
+
+            byte[] fileData = downloadResult.getFileData();
+
+            // 5. 设置响应头
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+            headers.setContentLength(fileData.length);
+            headers.setContentDispositionFormData("attachment", encodedFilename);
+            headers.set("X-File-Id", fileId.toString());
+            headers.set("X-Original-Filename", filename);
+            headers.set("X-Signature-Valid", String.valueOf(downloadResult.getSignatureValid()));
+            headers.set("X-Hash-Valid", String.valueOf(downloadResult.getHashValid()));
+            headers.set("X-Download-Time", downloadResult.getDownloadTime().toString());
+
+            return new ResponseEntity<>(fileData, headers, 200);
+
+        } catch (Exception e) {
+            log.error("文件下载失败", e);
+            return ResponseEntity.status(500)
+                    .body(("文件下载失败: " + e.getMessage()).getBytes());
         }
     }
 }

@@ -37,6 +37,102 @@ public class Sm4EncryptionUtil {
     private static final int IV_SIZE = 16; // 128位IV
 
     /**
+     * BMP文件信息结构
+     */
+    private static class BmpInfo {
+        int fileSize;
+        int pixelOffset;
+        int infoHeaderSize;
+        int width;
+        int height;
+        int bitsPerPixel;
+        int compression;
+        int imageSize;
+
+        @Override
+        public String toString() {
+            return String.format(
+                    "BmpInfo[width=%d, height=%d, bitsPerPixel=%d, pixelOffset=%d]",
+                    width, height, bitsPerPixel, pixelOffset
+            );
+        }
+    }
+
+    /**
+     * 解析BMP文件信息
+     */
+    private static BmpInfo parseBmpInfo(byte[] bmpData) {
+        BmpInfo info = new BmpInfo();
+
+        if (bmpData.length < 54) {
+            throw new RuntimeException("BMP文件过小");
+        }
+
+        // 文件大小
+        info.fileSize = ((bmpData[2] & 0xFF) |
+                ((bmpData[3] & 0xFF) << 8) |
+                ((bmpData[4] & 0xFF) << 16) |
+                ((bmpData[5] & 0xFF) << 24));
+
+        // 像素数据偏移
+        info.pixelOffset = ((bmpData[10] & 0xFF) |
+                ((bmpData[11] & 0xFF) << 8) |
+                ((bmpData[12] & 0xFF) << 16) |
+                ((bmpData[13] & 0xFF) << 24));
+
+        // 信息头大小
+        info.infoHeaderSize = ((bmpData[14] & 0xFF) |
+                ((bmpData[15] & 0xFF) << 8) |
+                ((bmpData[16] & 0xFF) << 16) |
+                ((bmpData[17] & 0xFF) << 24));
+
+        // 宽度和高度
+        info.width = ((bmpData[18] & 0xFF) |
+                ((bmpData[19] & 0xFF) << 8) |
+                ((bmpData[20] & 0xFF) << 16) |
+                ((bmpData[21] & 0xFF) << 24));
+
+        info.height = ((bmpData[22] & 0xFF) |
+                ((bmpData[23] & 0xFF) << 8) |
+                ((bmpData[24] & 0xFF) << 16) |
+                ((bmpData[25] & 0xFF) << 24));
+
+        // 位深度
+        info.bitsPerPixel = ((bmpData[28] & 0xFF) |
+                ((bmpData[29] & 0xFF) << 8));
+
+        // 压缩方式
+        info.compression = ((bmpData[30] & 0xFF) |
+                ((bmpData[31] & 0xFF) << 8) |
+                ((bmpData[32] & 0xFF) << 16) |
+                ((bmpData[33] & 0xFF) << 24));
+
+        // 像素数据大小
+        info.imageSize = ((bmpData[34] & 0xFF) |
+                ((bmpData[35] & 0xFF) << 8) |
+                ((bmpData[36] & 0xFF) << 16) |
+                ((bmpData[37] & 0xFF) << 24));
+
+        return info;
+    }
+    /**
+     * 验证BMP格式
+     */
+    private static boolean isValidBmp(byte[] data) {
+        if (data.length < 54) {
+            return false;
+        }
+
+        // 检查文件签名
+        if (data[0] != 'B' || data[1] != 'M') {
+            return false;
+        }
+
+        return true;
+    }
+
+
+    /**
      * 全文件加密 - 对整个文件内容进行加密
      * @param fileData 文件数据字节数组
      * @param sm4Key SM4密钥（Base64格式）
@@ -126,84 +222,95 @@ public class Sm4EncryptionUtil {
     }
 
     /**
-     * BMP选择性加密
-     * 扰乱30%的像素，产生雪花效果
+     * 可逆的BMP选择性加密 - XOR方案（推荐）
      */
     public static byte[] selectiveEncryptBmp(byte[] bmpData, String sm4Key) throws Exception {
-
-        // 解析文件头
-        int pixelOffset = ((bmpData[10] & 0xFF) |
-                ((bmpData[11] & 0xFF) << 8) |
-                ((bmpData[12] & 0xFF) << 16) |
-                ((bmpData[13] & 0xFF) << 24));
-
-        int width = ((bmpData[18] & 0xFF) |
-                ((bmpData[19] & 0xFF) << 8) |
-                ((bmpData[20] & 0xFF) << 16) |
-                ((bmpData[21] & 0xFF) << 24));
-
-        int height = ((bmpData[22] & 0xFF) |
-                ((bmpData[23] & 0xFF) << 8) |
-                ((bmpData[24] & 0xFF) << 16) |
-                ((bmpData[25] & 0xFF) << 24));
-
-        int bitsPerPixel = ((bmpData[28] & 0xFF) |
-                ((bmpData[29] & 0xFF) << 8));
-
-        // 验证数据
-        if (pixelOffset < 54 || pixelOffset >= bmpData.length) {
-            throw new RuntimeException("无效的像素偏移: " + pixelOffset);
+        if (!isValidBmp(bmpData)) {
+            throw new RuntimeException("无效的BMP文件");
         }
 
-        if (width <= 0 || width > 10000) {
-            throw new RuntimeException("无效的图片宽度: " + width);
-        }
+        BmpInfo info = parseBmpInfo(bmpData);
+        System.out.println("XOR加密BMP信息: " + info);
 
-        int absHeight = Math.abs(height);
+        byte[] encryptedData = bmpData.clone();
 
-        // 计算每行字节数
-        int bytesPerPixel = bitsPerPixel / 8;
-        int rowSize = width * bytesPerPixel;
-        int padding = (4 - (rowSize % 4)) % 4;  // BMP每行必须是4的倍数
-        rowSize += padding;
-
-        // 验证是否有足够的像素数据
-        int expectedPixelDataSize = absHeight * rowSize;
-        int actualPixelDataSize = bmpData.length - pixelOffset;
-
-        if (expectedPixelDataSize > actualPixelDataSize) {
-            throw new RuntimeException(String.format(
-                    "像素数据不足: 需要%d字节，实际%d字节",
-                    expectedPixelDataSize, actualPixelDataSize
-            ));
-        }
-
-        // 从密钥生成随机种子
         byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
         Random random = new Random(Arrays.hashCode(keyBytes));
 
-        // 扰乱像素
-        for (int row = 0; row < absHeight; row++) {
-            int rowStart = pixelOffset + row * rowSize;
+        int bytesPerPixel = info.bitsPerPixel / 8;
+        int rowSize = info.width * bytesPerPixel;
+        int padding = (4 - (rowSize % 4)) % 4;
+        rowSize += padding;
 
-            for (int col = 0; col < width; col++) {
+        int absHeight = Math.abs(info.height);
+
+        for (int row = 0; row < absHeight; row++) {
+            int rowStart = info.pixelOffset + row * rowSize;
+
+            for (int col = 0; col < info.width; col++) {
                 if (random.nextDouble() < 0.9) {
                     int pixelStart = rowStart + col * bytesPerPixel;
 
-                    // 关键：确保索引有效
-                    if (pixelStart >= 0 &&
-                            pixelStart + 2 < bmpData.length &&
-                            pixelStart >= pixelOffset) {
+                    if (pixelStart >= 0 && pixelStart + 2 < encryptedData.length) {
+                        byte maskB = (byte) random.nextInt(256);
+                        byte maskG = (byte) random.nextInt(256);
+                        byte maskR = (byte) random.nextInt(256);
 
-                        bmpData[pixelStart] = (byte) random.nextInt(256);     // Blue
-                        bmpData[pixelStart + 1] = (byte) random.nextInt(256); // Green
-                        bmpData[pixelStart + 2] = (byte) random.nextInt(256); // Red
+                        encryptedData[pixelStart] ^= maskB;
+                        encryptedData[pixelStart + 1] ^= maskG;
+                        encryptedData[pixelStart + 2] ^= maskR;
                     }
                 }
             }
         }
 
-        return bmpData;
+        return encryptedData;
+    }
+
+    /**
+     * BMP选择性解密 - XOR方案
+     */
+    public static byte[] selectiveDecryptBmp(byte[] encryptedBmpData, String sm4Key) throws Exception {
+        if (!isValidBmp(encryptedBmpData)) {
+            throw new RuntimeException("无效的BMP文件");
+        }
+
+        BmpInfo info = parseBmpInfo(encryptedBmpData);
+        System.out.println("XOR解密BMP信息: " + info);
+
+        byte[] decryptedData = encryptedBmpData.clone();
+
+        byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
+        Random random = new Random(Arrays.hashCode(keyBytes));
+
+        int bytesPerPixel = info.bitsPerPixel / 8;
+        int rowSize = info.width * bytesPerPixel;
+        int padding = (4 - (rowSize % 4)) % 4;
+        rowSize += padding;
+
+        int absHeight = Math.abs(info.height);
+
+        for (int row = 0; row < absHeight; row++) {
+            int rowStart = info.pixelOffset + row * rowSize;
+
+            for (int col = 0; col < info.width; col++) {
+                if (random.nextDouble() < 0.9) {
+                    int pixelStart = rowStart + col * bytesPerPixel;
+
+                    if (pixelStart >= 0 && pixelStart + 2 < decryptedData.length) {
+                        byte maskB = (byte) random.nextInt(256);
+                        byte maskG = (byte) random.nextInt(256);
+                        byte maskR = (byte) random.nextInt(256);
+
+                        decryptedData[pixelStart] ^= maskB;
+                        decryptedData[pixelStart + 1] ^= maskG;
+                        decryptedData[pixelStart + 2] ^= maskR;
+                    }
+                }
+            }
+        }
+
+        return decryptedData;
     }
 
     /**
@@ -327,22 +434,13 @@ public class Sm4EncryptionUtil {
     }
 
     private static byte[] selectiveImageDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
-        int headerSize = getImageHeaderSize(filename);
-
-        if (headerSize >= encryptedData.length) {
-            return fullDecrypt(encryptedData, sm4Key);
+        if (filename.endsWith(".bmp")) {
+            return selectiveDecryptBmp(encryptedData, sm4Key);
+        } else if (filename.endsWith(".png")) {
+            return selectiveEncryptPng(encryptedData, sm4Key);
+        } else {
+            throw new RuntimeException("不支持的文件格式");
         }
-
-        byte[] header = Arrays.copyOfRange(encryptedData, 0, headerSize);
-        byte[] encryptedPixels = Arrays.copyOfRange(encryptedData, headerSize, encryptedData.length);
-
-        byte[] decryptedPixels = fullDecrypt(encryptedPixels, sm4Key);
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        outputStream.write(header);
-        outputStream.write(decryptedPixels);
-
-        return outputStream.toByteArray();
     }
 
     private static byte[] selectiveVideoDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
