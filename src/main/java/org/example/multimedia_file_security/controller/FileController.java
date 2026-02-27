@@ -3,6 +3,7 @@ package org.example.multimedia_file_security.controller;
 import lombok.extern.slf4j.Slf4j;
 import org.example.multimedia_file_security.dto.FileDownloadDTO;
 import org.example.multimedia_file_security.dto.Result;
+import org.example.multimedia_file_security.pojo.FileRecord;
 import org.example.multimedia_file_security.service.FileService;
 import org.example.multimedia_file_security.threadLocal.UserThreadLocal;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @RestController
 @Slf4j
@@ -21,6 +23,29 @@ public class FileController {
 
     @Autowired
     private FileService fileService;
+
+    /**
+     * 文件分页列表查询
+     */
+    @GetMapping("/files")
+    public Result<List<FileRecord>> getFiles() {
+        log.info("用户[{}]开始查询文件列表", UserThreadLocal.getCurrentId());
+        Result<List<FileRecord>> result = new Result<>();
+        result.setCode(200);
+        result.setMessage("文件列表查询成功");
+        result.setData(fileService.getUserFiles(UserThreadLocal.getCurrentId()));
+        return result;
+    }
+
+    /**
+     * 文件删除接口
+     */
+    @DeleteMapping("/{fileId}")
+    public Result<?> deleteFile(@PathVariable Long fileId) {
+        log.info("用户[{}]开始删除文件: {}", UserThreadLocal.getCurrentId(), fileId);
+        return fileService.deleteFile(fileId, UserThreadLocal.getCurrentId()) ?
+                Result.success() : Result.error(500, "文件删除失败");
+    }
 
     /**
      * 文件上传接口

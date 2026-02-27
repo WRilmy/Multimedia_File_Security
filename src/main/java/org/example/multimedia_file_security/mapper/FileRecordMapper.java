@@ -3,6 +3,7 @@ package org.example.multimedia_file_security.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.example.multimedia_file_security.pojo.FileRecord;
 
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.List;
 public interface FileRecordMapper extends BaseMapper<FileRecord> {
 
     // 根据用户ID查询文件列表
+    @Select("SELECT * FROM file_record WHERE user_id = #{userId}")
     List<FileRecord> selectByUserId(@Param("userId") Long userId);
 
     // 根据加密文件名查找文件

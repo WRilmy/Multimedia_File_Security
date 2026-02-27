@@ -271,11 +271,19 @@ public class FileServiceImpl implements FileService {
 
     @Override
     public boolean deleteFile(Long fileId, Long userId) {
-        return false;
+        String filePath = fileRecordMapper.selectById(fileId).getFilePath();
+        boolean result = fileRecordMapper.deleteById(fileId) > 0;
+        if (result) {
+            minioUtil.removeObject(filePath);
+        } else {
+            log.error("删除文件失败");
+            return false;
+        }
+        return result;
     }
 
     @Override
     public List<FileRecord> getUserFiles(Long userId) {
-        return null;
+        return fileRecordMapper.selectByUserId(userId);
     }
 }

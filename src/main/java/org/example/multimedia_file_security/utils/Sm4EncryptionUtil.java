@@ -220,7 +220,7 @@ public class Sm4EncryptionUtil {
     }
 
     /**
-     * 可逆的BMP选择性加密 - XOR方案（推荐）
+     * 可逆的BMP选择性加密 - XOR方案
      */
     public static byte[] selectiveEncryptBmp(byte[] bmpData, String sm4Key) throws Exception {
         if (!isValidBmp(bmpData)) {
@@ -375,6 +375,24 @@ public class Sm4EncryptionUtil {
         }
 
         return outputStream.toByteArray();
+    }
+
+    // 在Sm4EncryptionUtil类中添加
+
+    /**
+     * 视频选择性加密 - 雪花效果
+     */
+    private static byte[] selectiveVideoEncryptSnow(byte[] videoData, String filename, String sm4Key) throws Exception {
+        // 使用新的雪花效果加密
+        return VideoSnowEncryptionUtil.selectiveVideoEncryptWithSnow(videoData, filename, sm4Key);
+    }
+
+    /**
+     * 视频选择性解密 - 雪花效果
+     */
+    private static byte[] selectiveVideoDecryptSnow(byte[] encryptedData, String filename, String sm4Key) throws Exception {
+        // 使用雪花效果解密
+        return VideoSnowEncryptionUtil.selectiveVideoDecryptWithSnow(encryptedData, filename, sm4Key);
     }
 
     /**
