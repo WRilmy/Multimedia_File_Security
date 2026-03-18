@@ -11,4 +11,6 @@ public interface FileService {
     Result downloadFile(Long fileId, Long userId);
     boolean deleteFile(Long fileId, Long userId);
     List<FileRecord> getUserFiles(Long userId);
+    FileRecord getFileRecordById(Long fileId);
+    byte[] getEncryptedFileData(Long fileId) throws Exception;
 }

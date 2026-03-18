@@ -197,6 +197,7 @@ public class Sm4EncryptionUtil {
             return selectiveImageEncrypt(fileData, filename, sm4Key);
         } else if (isVideoFile(filename)) {
             return selectiveVideoEncrypt(fileData, filename, sm4Key);
+//            return VideoSelectiveEncryptionUtil.selectiveEncryptVideo(fileData, sm4Key);
         } else {
             // 默认使用全文件加密
             return fullEncrypt(fileData, sm4Key);
@@ -211,58 +212,213 @@ public class Sm4EncryptionUtil {
     public static byte[] selectiveImageEncrypt(byte[] imageData, String filename, String sm4Key) throws Exception {
 
         if (filename.endsWith(".bmp")) {
-            return selectiveEncryptBmp(imageData, sm4Key);
+            return selectiveEncryptBmpCTR(imageData, sm4Key);
         } else if (filename.endsWith(".png")) {
             return selectiveEncryptPng(imageData, sm4Key);
+        } else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) {
+            return selectiveEncryptJpg(imageData, sm4Key);
         } else {
             throw new RuntimeException("不支持的文件格式");
         }
     }
 
+//    /**
+//     * 可逆的BMP选择性加密 - XOR方案
+//     */
+//    public static byte[] selectiveEncryptBmp(byte[] bmpData, String sm4Key) throws Exception {
+//        if (!isValidBmp(bmpData)) {
+//            throw new RuntimeException("无效的BMP文件");
+//        }
+//
+//        BmpInfo info = parseBmpInfo(bmpData);
+//        System.out.println("XOR加密BMP信息: " + info);
+//
+//        byte[] encryptedData = bmpData.clone();
+//
+//        byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
+//        Random random = new Random(Arrays.hashCode(keyBytes));
+////        SecureRandom random = new SecureRandom(keyBytes);  // 密码学安全的随机数
+//
+//        int bytesPerPixel = info.bitsPerPixel / 8;
+//        int rowSize = info.width * bytesPerPixel;
+//        int padding = (4 - (rowSize % 4)) % 4;
+//        rowSize += padding;
+//
+//        int absHeight = Math.abs(info.height);
+//
+//        for (int row = 0; row < absHeight; row++) {
+//            int rowStart = info.pixelOffset + row * rowSize;
+//
+//            for (int col = 0; col < info.width; col++) {
+//                if (random.nextDouble() < 0.9) {
+//                    int pixelStart = rowStart + col * bytesPerPixel;
+//
+//                    if (pixelStart >= 0 && pixelStart + 2 < encryptedData.length) {
+//                        byte maskB = (byte) random.nextInt(256);
+//                        byte maskG = (byte) random.nextInt(256);
+//                        byte maskR = (byte) random.nextInt(256);
+//
+//                        encryptedData[pixelStart] ^= maskB;
+//                        encryptedData[pixelStart + 1] ^= maskG;
+//                        encryptedData[pixelStart + 2] ^= maskR;
+//                    }
+//                }
+//            }
+//        }
+//
+//        return encryptedData;
+//    }
+
     /**
-     * 可逆的BMP选择性加密 - XOR方案
+     * SM4-CTR选择性加密BMP - IV追加在文件末尾
      */
-    public static byte[] selectiveEncryptBmp(byte[] bmpData, String sm4Key) throws Exception {
+    public static byte[] selectiveEncryptBmpCTR(byte[] bmpData, String sm4Key) throws Exception {
         if (!isValidBmp(bmpData)) {
             throw new RuntimeException("无效的BMP文件");
         }
 
+        // 克隆原始数据，避免修改输入
+        byte[] result = bmpData.clone();
+
         BmpInfo info = parseBmpInfo(bmpData);
-        System.out.println("XOR加密BMP信息: " + info);
 
-        byte[] encryptedData = bmpData.clone();
-
+        // 解码密钥
         byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
-        Random random = new Random(Arrays.hashCode(keyBytes));
+        SecretKeySpec keySpec = new SecretKeySpec(keyBytes, "SM4");
+
+        // 生成随机IV（16字节）
+        byte[] iv = new byte[16];
+        new SecureRandom().nextBytes(iv);
+
+        // 初始化CTR模式
+        Cipher cipher = Cipher.getInstance("SM4/CTR/NoPadding", "BC");
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, new IvParameterSpec(iv));
 
         int bytesPerPixel = info.bitsPerPixel / 8;
         int rowSize = info.width * bytesPerPixel;
         int padding = (4 - (rowSize % 4)) % 4;
         rowSize += padding;
-
         int absHeight = Math.abs(info.height);
 
+        // 生成密钥流
+        int pixelDataSize = absHeight * rowSize;
+        byte[] keystream = cipher.update(new byte[pixelDataSize]);
+        int keystreamPos = 0;
+
+        // 确定性加密：每10个像素加密9个
         for (int row = 0; row < absHeight; row++) {
             int rowStart = info.pixelOffset + row * rowSize;
 
             for (int col = 0; col < info.width; col++) {
-                if (random.nextDouble() < 0.9) {
+                int pixelIndex = row * info.width + col;
+
+                if (pixelIndex % 10 < 9) {  // 90%像素加密
                     int pixelStart = rowStart + col * bytesPerPixel;
 
-                    if (pixelStart >= 0 && pixelStart + 2 < encryptedData.length) {
-                        byte maskB = (byte) random.nextInt(256);
-                        byte maskG = (byte) random.nextInt(256);
-                        byte maskR = (byte) random.nextInt(256);
-
-                        encryptedData[pixelStart] ^= maskB;
-                        encryptedData[pixelStart + 1] ^= maskG;
-                        encryptedData[pixelStart + 2] ^= maskR;
+                    if (pixelStart >= 0 && pixelStart + 2 < result.length) {
+                        result[pixelStart] ^= keystream[keystreamPos];
+                        result[pixelStart + 1] ^= keystream[keystreamPos + 1];
+                        result[pixelStart + 2] ^= keystream[keystreamPos + 2];
                     }
                 }
+                keystreamPos += bytesPerPixel;
             }
         }
 
-        return encryptedData;
+        // 输出: 加密后的BMP + IV
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        output.write(result);  // 54字节头 + 加密像素数据
+        output.write(iv);      // 16字节IV
+
+        System.out.println("CTR加密: 原始大小=" + bmpData.length + ", 输出大小=" + (result.length + 16));
+
+        return output.toByteArray();
+    }
+
+    /**
+     * SM4-CTR选择性解密BMP - 从文件末尾提取IV
+     */
+    public static byte[] selectiveDecryptBmpCTR(byte[] encryptedData, String sm4Key) throws Exception {
+        System.out.println("CTR解密: 输入大小=" + encryptedData.length);
+
+        // 验证数据长度
+        if (encryptedData.length < 54 + 16) {
+            throw new IllegalArgumentException("加密数据过短，需要至少70字节（BMP头54+IV16）");
+        }
+
+        // 提取IV（最后16字节）
+        byte[] iv = Arrays.copyOfRange(encryptedData, encryptedData.length - 16, encryptedData.length);
+
+        // 提取BMP数据（去掉最后16字节IV）
+        byte[] bmpData = Arrays.copyOfRange(encryptedData, 0, encryptedData.length - 16);
+
+        System.out.println("CTR解密: BMP部分=" + bmpData.length + ", IV=" + bytesToHex(iv));
+
+        // 验证BMP格式
+        if (!isValidBmp(bmpData)) {
+            throw new IllegalArgumentException("提取的BMP数据无效，可能IV位置错误或数据损坏");
+        }
+
+        BmpInfo info = parseBmpInfo(bmpData);
+        byte[] result = bmpData.clone();  // 克隆，避免修改输入
+
+        // 解码密钥
+        byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
+        SecretKeySpec keySpec = new SecretKeySpec(keyBytes, "SM4");
+
+        // 初始化CTR模式（使用提取的IV）
+        Cipher cipher = Cipher.getInstance("SM4/CTR/NoPadding", "BC");
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, new IvParameterSpec(iv));
+
+        int bytesPerPixel = info.bitsPerPixel / 8;
+        int rowSize = info.width * bytesPerPixel;
+        int padding = (4 - (rowSize % 4)) % 4;
+        rowSize += padding;
+        int absHeight = Math.abs(info.height);
+
+        // 生成相同的密钥流
+        int pixelDataSize = absHeight * rowSize;
+        byte[] keystream = cipher.update(new byte[pixelDataSize]);
+        int keystreamPos = 0;
+
+        // 确定性解密（与加密相同的逻辑）
+        int decryptedPixels = 0;
+        for (int row = 0; row < absHeight; row++) {
+            int rowStart = info.pixelOffset + row * rowSize;
+
+            for (int col = 0; col < info.width; col++) {
+                int pixelIndex = row * info.width + col;
+
+                // 同样的90%判断
+                if (pixelIndex % 10 < 9) {
+                    int pixelStart = rowStart + col * bytesPerPixel;
+
+                    if (pixelStart >= 0 && pixelStart + 2 < result.length) {
+                        // 同样的XOR操作（CTR解密 = 加密）
+                        result[pixelStart] ^= keystream[keystreamPos];
+                        result[pixelStart + 1] ^= keystream[keystreamPos + 1];
+                        result[pixelStart + 2] ^= keystream[keystreamPos + 2];
+                        decryptedPixels++;
+                    }
+                }
+                keystreamPos += bytesPerPixel;
+            }
+        }
+
+        System.out.println("CTR解密完成: " + info + ", 解密像素=" + decryptedPixels);
+        System.out.println("CTR解密: 输出大小=" + result.length);
+
+        // 返回纯BMP（不带IV）
+        return result;
+    }
+
+    // 辅助方法：字节数组转十六进制（用于调试）
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
 
     /**
@@ -280,6 +436,7 @@ public class Sm4EncryptionUtil {
 
         byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
         Random random = new Random(Arrays.hashCode(keyBytes));
+//        SecureRandom random = new SecureRandom(keyBytes);  // 密码学安全的随机数
 
         int bytesPerPixel = info.bitsPerPixel / 8;
         int rowSize = info.width * bytesPerPixel;
@@ -315,24 +472,28 @@ public class Sm4EncryptionUtil {
      * PNG选择性加密（简化版）
      */
     private static byte[] selectiveEncryptPng(byte[] pngData, String sm4Key) throws Exception {
-        // PNG格式复杂，这里简化处理
-        // TODO 实际上需要解析PNG的IDAT块
+        return PngSelectiveEncryptionUtil.selectiveEncryptPng(pngData, sm4Key);
+    }
 
-        // 1. 验证PNG签名
-        byte[] pngSignature = { (byte)0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
-        for (int i = 0; i < 8; i++) {
-            if (pngData[i] != pngSignature[i]) {
-                throw new RuntimeException("无效的PNG文件");
-            }
-        }
+    /**
+     * PNG选择性解密
+     */
+    public static byte[] selectiveDecryptPng(byte[] encryptedPngData, String sm4Key) throws Exception {
+        return PngSelectiveEncryptionUtil.selectiveDecryptPng(encryptedPngData, sm4Key);
+    }
 
-        // 2. 简单扰乱：在文件末尾添加一个无害的文本块
-        // 这不会影响图片显示，但能证明文件被处理过
-        String watermark = "ENCRYPTED_BY_SM4";
-        byte[] watermarked = Arrays.copyOf(pngData, pngData.length + watermark.length());
-        System.arraycopy(watermark.getBytes(), 0, watermarked, pngData.length, watermark.length());
+    /**
+     * JPG选择性加密（简化版）
+     */
+    private static byte[] selectiveEncryptJpg(byte[] pngData, String sm4Key) throws Exception {
+        return JpegSelectiveEncryptionUtil.selectiveEncryptJpeg(pngData, sm4Key);
+    }
 
-        return watermarked;
+    /**
+     * JPG选择性解密
+     */
+    public static byte[] selectiveDecryptJpg(byte[] encryptedPngData, String sm4Key) throws Exception {
+        return JpegSelectiveEncryptionUtil.selectiveDecryptJpeg(encryptedPngData, sm4Key);
     }
 
     /**
@@ -378,22 +539,6 @@ public class Sm4EncryptionUtil {
     }
 
     // 在Sm4EncryptionUtil类中添加
-
-    /**
-     * 视频选择性加密 - 雪花效果
-     */
-    private static byte[] selectiveVideoEncryptSnow(byte[] videoData, String filename, String sm4Key) throws Exception {
-        // 使用新的雪花效果加密
-        return VideoSnowEncryptionUtil.selectiveVideoEncryptWithSnow(videoData, filename, sm4Key);
-    }
-
-    /**
-     * 视频选择性解密 - 雪花效果
-     */
-    private static byte[] selectiveVideoDecryptSnow(byte[] encryptedData, String filename, String sm4Key) throws Exception {
-        // 使用雪花效果解密
-        return VideoSnowEncryptionUtil.selectiveVideoDecryptWithSnow(encryptedData, filename, sm4Key);
-    }
 
     /**
      * 全文件解密
@@ -444,6 +589,7 @@ public class Sm4EncryptionUtil {
             return selectiveImageDecrypt(encryptedData, filename, sm4Key);
         } else if (isVideoFile(filename)) {
             return selectiveVideoDecrypt(encryptedData, filename, sm4Key);
+//            return VideoSelectiveEncryptionUtil.selectiveEncryptVideo(encryptedData, sm4Key);
         } else {
             return fullDecrypt(encryptedData, sm4Key);
         }
@@ -451,9 +597,11 @@ public class Sm4EncryptionUtil {
 
     private static byte[] selectiveImageDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
         if (filename.endsWith(".bmp")) {
-            return selectiveDecryptBmp(encryptedData, sm4Key);
+            return selectiveDecryptBmpCTR(encryptedData, sm4Key);
         } else if (filename.endsWith(".png")) {
-            return selectiveEncryptPng(encryptedData, sm4Key);
+            return selectiveDecryptPng(encryptedData, sm4Key);
+        } else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) {
+            return selectiveDecryptJpg(encryptedData, sm4Key);
         } else {
             throw new RuntimeException("不支持的文件格式");
         }
@@ -535,22 +683,4 @@ public class Sm4EncryptionUtil {
                 (bytes[3] & 0xFF);
     }
 
-    /**
-     * 生成SM4密钥
-     */
-    public static String generateSm4Key() throws Exception {
-        KeyGenerator keyGenerator = KeyGenerator.getInstance(ALGORITHM, BouncyCastleProvider.PROVIDER_NAME);
-        keyGenerator.init(KEY_SIZE, new SecureRandom());
-        SecretKey secretKey = keyGenerator.generateKey();
-        return java.util.Base64.getEncoder().encodeToString(secretKey.getEncoded());
-    }
-
-    /**
-     * 生成随机IV
-     */
-    public static byte[] generateIv() {
-        byte[] iv = new byte[IV_SIZE];
-        new SecureRandom().nextBytes(iv);
-        return iv;
-    }
 }

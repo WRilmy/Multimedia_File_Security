@@ -18,6 +18,10 @@ public class FileRecord {
 
     // 加密相关信息
     private String sm3Hash;           // 文件哈希值
+    /**
+     * 像素级SM3哈希（用于选择性加密图像验证）
+     */
+    private String pixelSm3Hash;
     private String encryptedSm4Key;   // 加密的SM4密钥
     private String digitalSignature;  // 数字签名
     private String encryptionMode;    // 加密模式：FULL/SELECTIVE
