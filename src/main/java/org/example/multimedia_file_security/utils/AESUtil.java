@@ -22,14 +22,18 @@ public class AESUtil {
     private static final int IV_LENGTH = 12;   // 12字节IV（推荐值）
     private static final int KEY_SIZE = 256;   // AES-256
 
-    private static final String masterKeyBase64 = "MultimediaFIleSecurity";
+
+
+    // 系统级密钥，实际部署时应该从配置文件或环境变量读取
+    private static final String SYSTEM_KEY = "MultimediaFileSecuritySystemKey2026";
+    private static final String SYSTEM_SALT = "SystemSalt20260319";
 
     /**
      * 加密SM2私钥
      */
     public static String encryptPrivateKey(String sm2PrivateKey) throws Exception {
-        // 1. 从用户密码派生加密密钥
-        SecretKey encryptionKey = deriveKeyFromPassword(masterKeyBase64);
+        // 1. 从系统密钥派生加密密钥
+        SecretKey encryptionKey = deriveKeyFromPassword(SYSTEM_KEY, SYSTEM_SALT);
 
         // 2. 生成随机IV
         byte[] iv = generateIv();
@@ -54,8 +58,8 @@ public class AESUtil {
      * 解密SM2私钥
      */
     public static String decryptPrivateKey(String encryptedPrivateKey) throws Exception {
-        // 1. 从用户密码派生加密密钥
-        SecretKey encryptionKey = deriveKeyFromPassword(masterKeyBase64);
+        // 1. 从系统密钥派生加密密钥
+        SecretKey encryptionKey = deriveKeyFromPassword(SYSTEM_KEY, SYSTEM_SALT);
 
         // 2. 解码Base64
         byte[] data = Base64.getDecoder().decode(encryptedPrivateKey);
@@ -82,22 +86,9 @@ public class AESUtil {
     /**
      * 从用户密码派生加密密钥
      */
-    private static SecretKey deriveKeyFromPassword(String password) throws Exception {
-        // 使用PBKDF2（密码派生函数）从密码生成密钥
-        String salt = "fixed-salt-or-from-config"; // 应该从配置读取
-        int iterations = 100000;
-
-        javax.crypto.spec.PBEKeySpec spec = new javax.crypto.spec.PBEKeySpec(
-                password.toCharArray(),
-                salt.getBytes(),
-                iterations,
-                KEY_SIZE
-        );
-
-        javax.crypto.SecretKeyFactory factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
-        byte[] keyBytes = factory.generateSecret(spec).getEncoded();
-
-        return new SecretKeySpec(keyBytes, ALGORITHM);
+    private static SecretKey deriveKeyFromPassword(String password, String salt) throws Exception {
+        // 使用KeyDerivationUtil进行密钥派生
+        return KeyDerivationUtil.deriveKeyFromPassword(password, salt);
     }
 
     private static byte[] generateIv() {

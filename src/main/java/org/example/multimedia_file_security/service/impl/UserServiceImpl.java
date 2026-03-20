@@ -19,6 +19,7 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 
 import static org.example.multimedia_file_security.utils.AESUtil.encryptPrivateKey;
+import static org.example.multimedia_file_security.utils.KeyDerivationUtil.generateSalt;
 import static org.example.multimedia_file_security.utils.Sm2Util.generateKeyPair;
 
 @Service
@@ -56,14 +57,18 @@ public class UserServiceImpl implements UserService {
         // 3. 生成SM2秘钥对
         String[] keyPair = generateKeyPair();
 
-        // 3. 密码和私钥加密（密码使用BCrypt，私钥使用AES）
+        // 4. 生成盐值
+        String salt = generateSalt();
+
+        // 5. 密码和私钥加密（密码使用BCrypt，私钥使用AES）
         String encryptedPassword  = BCryptPasswordUtil.encryptPassword(userRegister.getPassword());
-        String encryptedPrivateKey = encryptPrivateKey(keyPair[1]);
+        String encryptedPrivateKey = AESUtil.encryptPrivateKey(keyPair[1]);
 
         // 4. 数据转换与填充
         User user = new User();
         BeanUtils.copyProperties(userRegister, user);
         user.setPasswordHash(encryptedPassword);
+        user.setSalt(salt);
         user.setRole("USER"); // 默认角色
         user.setStatus("1"); // 默认状态：激活
         user.setSm2PublicKey(keyPair[0]);
@@ -125,4 +130,6 @@ public class UserServiceImpl implements UserService {
         // 这里可以实现：发送欢迎邮件、初始化用户信息等
         System.out.println("用户注册成功，ID: " + user.getId());
     }
+
+
 }

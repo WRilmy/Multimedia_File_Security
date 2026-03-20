@@ -33,6 +33,7 @@ public class Sm4EncryptionUtil {
     private static final String TRANSFORMATION_ECB = "SM4/ECB/PKCS7Padding";
     private static final int KEY_SIZE = 128;
     private static final int IV_SIZE = 16; // 128位IV
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     /**
      * BMP文件信息结构
@@ -160,7 +161,7 @@ public class Sm4EncryptionUtil {
 
         if ("CBC".equalsIgnoreCase(mode)) {
             // CBC模式需要IV
-            new SecureRandom().nextBytes(iv);
+            SECURE_RANDOM.nextBytes(iv);
             IvParameterSpec ivSpec = new IvParameterSpec(iv);
             cipher = Cipher.getInstance(TRANSFORMATION_CBC, BouncyCastleProvider.PROVIDER_NAME);
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivSpec);
@@ -222,52 +223,6 @@ public class Sm4EncryptionUtil {
         }
     }
 
-//    /**
-//     * 可逆的BMP选择性加密 - XOR方案
-//     */
-//    public static byte[] selectiveEncryptBmp(byte[] bmpData, String sm4Key) throws Exception {
-//        if (!isValidBmp(bmpData)) {
-//            throw new RuntimeException("无效的BMP文件");
-//        }
-//
-//        BmpInfo info = parseBmpInfo(bmpData);
-//        System.out.println("XOR加密BMP信息: " + info);
-//
-//        byte[] encryptedData = bmpData.clone();
-//
-//        byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
-//        Random random = new Random(Arrays.hashCode(keyBytes));
-////        SecureRandom random = new SecureRandom(keyBytes);  // 密码学安全的随机数
-//
-//        int bytesPerPixel = info.bitsPerPixel / 8;
-//        int rowSize = info.width * bytesPerPixel;
-//        int padding = (4 - (rowSize % 4)) % 4;
-//        rowSize += padding;
-//
-//        int absHeight = Math.abs(info.height);
-//
-//        for (int row = 0; row < absHeight; row++) {
-//            int rowStart = info.pixelOffset + row * rowSize;
-//
-//            for (int col = 0; col < info.width; col++) {
-//                if (random.nextDouble() < 0.9) {
-//                    int pixelStart = rowStart + col * bytesPerPixel;
-//
-//                    if (pixelStart >= 0 && pixelStart + 2 < encryptedData.length) {
-//                        byte maskB = (byte) random.nextInt(256);
-//                        byte maskG = (byte) random.nextInt(256);
-//                        byte maskR = (byte) random.nextInt(256);
-//
-//                        encryptedData[pixelStart] ^= maskB;
-//                        encryptedData[pixelStart + 1] ^= maskG;
-//                        encryptedData[pixelStart + 2] ^= maskR;
-//                    }
-//                }
-//            }
-//        }
-//
-//        return encryptedData;
-//    }
 
     /**
      * SM4-CTR选择性加密BMP - IV追加在文件末尾
@@ -419,53 +374,6 @@ public class Sm4EncryptionUtil {
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
-    }
-
-    /**
-     * BMP选择性解密 - XOR方案
-     */
-    public static byte[] selectiveDecryptBmp(byte[] encryptedBmpData, String sm4Key) throws Exception {
-        if (!isValidBmp(encryptedBmpData)) {
-            throw new RuntimeException("无效的BMP文件");
-        }
-
-        BmpInfo info = parseBmpInfo(encryptedBmpData);
-        System.out.println("XOR解密BMP信息: " + info);
-
-        byte[] decryptedData = encryptedBmpData.clone();
-
-        byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
-        Random random = new Random(Arrays.hashCode(keyBytes));
-//        SecureRandom random = new SecureRandom(keyBytes);  // 密码学安全的随机数
-
-        int bytesPerPixel = info.bitsPerPixel / 8;
-        int rowSize = info.width * bytesPerPixel;
-        int padding = (4 - (rowSize % 4)) % 4;
-        rowSize += padding;
-
-        int absHeight = Math.abs(info.height);
-
-        for (int row = 0; row < absHeight; row++) {
-            int rowStart = info.pixelOffset + row * rowSize;
-
-            for (int col = 0; col < info.width; col++) {
-                if (random.nextDouble() < 0.9) {
-                    int pixelStart = rowStart + col * bytesPerPixel;
-
-                    if (pixelStart >= 0 && pixelStart + 2 < decryptedData.length) {
-                        byte maskB = (byte) random.nextInt(256);
-                        byte maskG = (byte) random.nextInt(256);
-                        byte maskR = (byte) random.nextInt(256);
-
-                        decryptedData[pixelStart] ^= maskB;
-                        decryptedData[pixelStart + 1] ^= maskG;
-                        decryptedData[pixelStart + 2] ^= maskR;
-                    }
-                }
-            }
-        }
-
-        return decryptedData;
     }
 
     /**

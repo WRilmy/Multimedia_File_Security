@@ -25,6 +25,10 @@ public class User {
    */
   private String passwordHash;
   /**
+   * 盐值
+   */
+  private String salt;
+  /**
    * SM2公钥
    */
   private String sm2PublicKey;
