@@ -332,15 +332,16 @@ public class FileServiceImpl implements FileService {
                     fileRecord.getEncryptionMode(), fileRecord.getOriginalFilename());
 
             // 8. 验证文件完整性（根据加密模式选择验证方式）
-
-            if ("SELECTIVE".equals(fileRecord.getEncryptionMode()) &&
-                    isImageFile(fileRecord.getOriginalFilename())) {
-                // 选择性加密图像：验证像素级哈希
-                verifyPixelHash(decryptedData, fileRecord.getOriginalFilename(),
-                        fileRecord.getPixelSm3Hash());
-            } else {
-                // 全文件加密或其他：验证文件级哈希
-                verifyFileHash(decryptedData, fileRecord.getSm3Hash());
+            if (!fileRecord.getOriginalFilename().endsWith(".jpg") && !fileRecord.getOriginalFilename().endsWith(".jpeg")){
+                if ("SELECTIVE".equals(fileRecord.getEncryptionMode()) &&
+                        isImageFile(fileRecord.getOriginalFilename())) {
+                    // 选择性加密图像：验证像素级哈希
+                    verifyPixelHash(decryptedData, fileRecord.getOriginalFilename(),
+                            fileRecord.getPixelSm3Hash());
+                } else {
+                    // 全文件加密或其他：验证文件级哈希
+                    verifyFileHash(decryptedData, fileRecord.getSm3Hash());
+                }
             }
 
             // 9. 返回下载结果

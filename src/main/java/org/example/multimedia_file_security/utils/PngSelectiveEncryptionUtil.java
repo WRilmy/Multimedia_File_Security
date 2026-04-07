@@ -171,8 +171,8 @@ public class PngSelectiveEncryptionUtil {
 
             int pixelStart = rowStart + 1; // 跳过过滤字节
             for (int col = 0; col < pngInfo.getWidth(); col++) {
-                // 80% 的像素被扰乱（可调整比例）
-                if (random.nextDouble() < 0.8) {
+                // 99% 的像素被扰乱（可调整比例）
+                if (random.nextDouble() < 0.99) {
                     int pixelPos = pixelStart + col * bytesPerPixel;
                     if (pixelPos + bytesPerPixel <= pixelData.length) {
                         for (int b = 0; b < bytesPerPixel; b++) {
