@@ -2,10 +2,16 @@ package org.example.multimedia_file_security.utils;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.springframework.stereotype.Component;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.Security;
 import java.util.*;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
@@ -14,6 +20,12 @@ import java.util.zip.Inflater;
 @Component
 @Slf4j
 public class PngSelectiveEncryptionUtil {
+
+    static {
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+    }
 
     private static final byte[] PNG_SIGNATURE = {
             (byte)0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
@@ -192,6 +204,130 @@ public class PngSelectiveEncryptionUtil {
 
         // 重建PNG文件
         return rebuildPng(pngData, pngInfo, recompressedData);
+    }
+
+    public static byte[] selectiveEncryptPngSm4Ctr(byte[] pngData, String sm4Key) throws Exception {
+        return selectiveEncryptPngWithKeyStream(pngData, sm4Key, KeyStreamMode.SM4_CTR);
+    }
+
+    public static byte[] selectiveDecryptPngSm4Ctr(byte[] encryptedPngData, String sm4Key) throws Exception {
+        return selectiveEncryptPngSm4Ctr(encryptedPngData, sm4Key);
+    }
+
+    public static byte[] selectiveEncryptPngHyperchaotic(byte[] pngData, String sm4Key) throws Exception {
+        return selectiveEncryptPngWithKeyStream(pngData, sm4Key, KeyStreamMode.HYPERCHAOTIC_CHEN);
+    }
+
+    public static byte[] selectiveDecryptPngHyperchaotic(byte[] encryptedPngData, String sm4Key) throws Exception {
+        return selectiveEncryptPngHyperchaotic(encryptedPngData, sm4Key);
+    }
+
+    private static byte[] selectiveEncryptPngWithKeyStream(byte[] pngData, String sm4Key,
+                                                           KeyStreamMode mode) throws Exception {
+        if (!isValidPng(pngData)) {
+            throw new IllegalArgumentException("无效的PNG文件");
+        }
+
+        PngInfo pngInfo = parsePng(pngData);
+        if (pngInfo.getIdatChunks().isEmpty()) {
+            return Sm4EncryptionUtil.fullEncrypt(pngData, sm4Key);
+        }
+
+        ByteArrayOutputStream idatDataStream = new ByteArrayOutputStream();
+        for (PngChunk chunk : pngInfo.getIdatChunks()) {
+            idatDataStream.write(chunk.getData());
+        }
+
+        byte[] pixelData = decompressData(idatDataStream.toByteArray());
+        int bytesPerPixel = getBytesPerPixel(pngInfo);
+        int rowSize = pngInfo.getWidth() * bytesPerPixel;
+        int payloadLength = pngInfo.getWidth() * pngInfo.getHeight() * bytesPerPixel;
+        byte[] keyStream = generateExperimentKeyStream(payloadLength, sm4Key, mode);
+
+        int streamIndex = 0;
+        int disturbedPixels = 0;
+        for (int row = 0; row < pngInfo.getHeight(); row++) {
+            int rowStart = row * (rowSize + 1);
+            if (rowStart + 1 >= pixelData.length) {
+                break;
+            }
+
+            int pixelStart = rowStart + 1;
+            for (int col = 0; col < pngInfo.getWidth(); col++) {
+                int pixelPos = pixelStart + col * bytesPerPixel;
+                if (pixelPos + bytesPerPixel <= pixelData.length && streamIndex + bytesPerPixel <= keyStream.length) {
+                    for (int b = 0; b < bytesPerPixel; b++) {
+                        pixelData[pixelPos + b] ^= keyStream[streamIndex++];
+                    }
+                    disturbedPixels++;
+                }
+            }
+        }
+
+        log.info("PNG {} 密钥流扰动了 {}/{} 个像素",
+                mode.getDisplayName(), disturbedPixels, pngInfo.getWidth() * pngInfo.getHeight());
+
+        byte[] recompressedData = compressData(pixelData);
+        return rebuildPng(pngData, pngInfo, recompressedData);
+    }
+
+    private static byte[] generateExperimentKeyStream(int length, String sm4Key, KeyStreamMode mode) throws Exception {
+        if (mode == KeyStreamMode.SM4_CTR) {
+            return generateSm4CtrKeyStream(length, sm4Key);
+        }
+
+        HyperchaoticChenUtil.ChenKeyStreamConfig config = deriveChenConfigFromKey(sm4Key);
+        return HyperchaoticChenUtil.generateKeyStream(length, config);
+    }
+
+    private static byte[] generateSm4CtrKeyStream(int length, String sm4Key) throws Exception {
+        byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
+        byte[] iv = Arrays.copyOf(sha256(keyBytes, "PNG-SM4-CTR".getBytes(StandardCharsets.UTF_8)), 16);
+
+        Cipher cipher = Cipher.getInstance("SM4/CTR/NoPadding", BouncyCastleProvider.PROVIDER_NAME);
+        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(keyBytes, "SM4"), new IvParameterSpec(iv));
+        return cipher.update(new byte[length]);
+    }
+
+    private static HyperchaoticChenUtil.ChenKeyStreamConfig deriveChenConfigFromKey(String sm4Key) throws Exception {
+        byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
+        byte[] digest = sha256(keyBytes, "PNG-HYPERCHAOTIC-CHEN".getBytes(StandardCharsets.UTF_8));
+
+        double x0 = 0.10 + unsignedFraction(digest, 0) * 0.80;
+        double y0 = 0.10 + unsignedFraction(digest, 8) * 0.80;
+        double z0 = 0.10 + unsignedFraction(digest, 16) * 0.80;
+        double w0 = 0.10 + unsignedFraction(digest, 24) * 0.80;
+        return HyperchaoticChenUtil.withInitialState(x0, y0, z0, w0);
+    }
+
+    private static byte[] sha256(byte[] first, byte[] second) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        digest.update(first);
+        digest.update(second);
+        return digest.digest();
+    }
+
+    private static double unsignedFraction(byte[] bytes, int offset) {
+        long value = 0;
+        for (int i = 0; i < Long.BYTES; i++) {
+            value = (value << 8) | (bytes[offset + i] & 0xFFL);
+        }
+        return (value >>> 1) / (double) Long.MAX_VALUE;
+    }
+
+    private enum KeyStreamMode {
+        SM4_CTR("SM4-CTR"),
+        HYPERCHAOTIC_CHEN("超混沌Chen");
+
+        private final String displayName;
+
+        KeyStreamMode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        private String getDisplayName() {
+            return displayName;
+        }
     }
 
     private static int getBytesPerPixel(PngInfo pngInfo) {
