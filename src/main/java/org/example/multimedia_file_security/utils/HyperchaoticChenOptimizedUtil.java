@@ -5,6 +5,9 @@ import java.nio.ByteOrder;
 import java.security.MessageDigest;
 import java.util.Arrays;
 
+import static org.example.multimedia_file_security.utils.Sm4EncryptionUtil.fullEncrypt;
+import static org.example.multimedia_file_security.utils.Sm4EncryptionUtil.fullDecrypt;
+
 /**
  * 改进版四维超混沌 Chen 系统：在第三个方程添加 ew 项
  * 微分方程组：
@@ -178,6 +181,38 @@ public final class HyperchaoticChenOptimizedUtil {
      */
     public static byte[] xorDecrypt(byte[] encryptedData, ChenKeyStreamConfig config) {
         return xorWithKeyStream(encryptedData, config);
+    }
+
+    /**
+     * 混合加密：先改进版超混沌Chen加密，再SM4加密
+     * 加密流程：原始数据 -> 超混沌XOR加密 -> SM4加密 -> 密文
+     */
+    public static byte[] hybridEncrypt(byte[] plainData, ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
+        if (plainData == null) {
+            throw new IllegalArgumentException("plainData must not be null");
+        }
+        try {
+            byte[] chaosEncrypted = xorWithKeyStream(plainData, chenConfig);
+            return fullEncrypt(chaosEncrypted, sm4KeyBase64);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to hybrid encrypt with optimized Chen", e);
+        }
+    }
+
+    /**
+     * 混合解密：先SM4解密，再改进版超混沌Chen解密
+     * 解密流程：密文 -> SM4解密 -> 超混沌XOR解密 -> 原始数据
+     */
+    public static byte[] hybridDecrypt(byte[] encryptedData, ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
+        if (encryptedData == null) {
+            throw new IllegalArgumentException("encryptedData must not be null");
+        }
+        try {
+            byte[] chaosDecrypted = fullDecrypt(encryptedData, sm4KeyBase64);
+            return xorWithKeyStream(chaosDecrypted, chenConfig);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to hybrid decrypt with optimized Chen", e);
+        }
     }
 
     public static byte[] xorWithKeyStream(byte[] input, ChenKeyStreamConfig config) {

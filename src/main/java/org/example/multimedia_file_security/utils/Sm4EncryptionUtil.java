@@ -150,9 +150,9 @@ public class Sm4EncryptionUtil {
      */
     public static byte[] newFullEncrypt(byte[] fileData, String filename, String sm4Key) throws Exception {
         if (filename != null && isImageFile(filename.toLowerCase())) {
-            // 图像文件：先超混沌XOR加密，再SM4全文件加密
-            HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
-            return HyperchaoticChenUtil.hybridEncrypt(fileData, config, sm4Key);
+            // 图像文件：先改进版超混沌Chen XOR加密，再SM4全文件加密
+            HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.defaultConfig();
+            return HyperchaoticChenOptimizedUtil.hybridEncrypt(fileData, config, sm4Key);
         }
         // 非图像文件：保持原有SM4全文件加密
         return fullEncrypt(fileData, sm4Key, "CBC");
@@ -482,9 +482,9 @@ public class Sm4EncryptionUtil {
      */
     public static byte[] newFullDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
         if (filename != null && isImageFile(filename.toLowerCase())) {
-            // 图像文件：先SM4解密，再超混沌XOR解密
-            HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
-            return HyperchaoticChenUtil.hybridDecrypt(encryptedData, config, sm4Key);
+            // 图像文件：先SM4解密，再改进版超混沌Chen XOR解密
+            HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.defaultConfig();
+            return HyperchaoticChenOptimizedUtil.hybridDecrypt(encryptedData, config, sm4Key);
         }
         // 非图像文件：保持原有SM4全文件解密
         return fullDecrypt(encryptedData, sm4Key, "CBC");
