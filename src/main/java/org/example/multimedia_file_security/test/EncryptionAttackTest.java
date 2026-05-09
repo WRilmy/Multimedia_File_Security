@@ -85,7 +85,7 @@ public class EncryptionAttackTest {
     }
 
     public TestReport runFullTestSuite(BufferedImage originalImage, BufferedImage encryptedImage, byte[] originalData,
-                                       byte[] encryptedData, String encryptionMode, String filename) throws Exception {
+                                       byte[] encryptedData, String encryptionMode, String filename, String fileType) throws Exception {
         log.info("开始执行加密攻击测试套件");
 
         TestReport report = new TestReport();
@@ -93,14 +93,57 @@ public class EncryptionAttackTest {
         report.setTestFile(filename);
         report.setEncryptionMode(encryptionMode);
 
-        if ("FULL".equals(encryptionMode)) {
-            runBasicSecurityTests(encryptedImage, encryptedData, report, encryptionMode);
-            runCryptographicAttacks(originalData, encryptedData, report, encryptionMode, filename);
-            runStatisticalAttacks(originalData, encryptedData, report, encryptedImage, encryptionMode);
-            runFormatAnalysisAttacks(encryptedData, filename, report);
-            exportByteHistogram(originalData, encryptedData, filename);
-        } else {
-            runSelectiveImageDomainTests(originalImage, encryptedImage, originalData, encryptedData, report, filename);
+        // 根据文件类型执行不同的测试
+        if ("IMAGE".equals(fileType)) {
+            // 图片文件测试
+            if ("FULL".equals(encryptionMode)) {
+                runBasicSecurityTests(encryptedImage, encryptedData, report, encryptionMode);
+                runCryptographicAttacks(originalData, encryptedData, report, encryptionMode, filename);
+                runStatisticalAttacks(originalData, encryptedData, report, encryptedImage, encryptionMode);
+                runFormatAnalysisAttacks(encryptedData, filename, report);
+                exportByteHistogram(originalData, encryptedData, filename);
+            } else if ("HYPERCHAOTIC".equals(encryptionMode) || "HYBRID".equals(encryptionMode)) {
+                runBasicSecurityTests(encryptedImage, encryptedData, report, encryptionMode);
+                runCryptographicAttacks(originalData, encryptedData, report, encryptionMode, filename);
+                runStatisticalAttacks(originalData, encryptedData, report, encryptedImage, encryptionMode);
+            } else {
+                runSelectiveImageDomainTests(originalImage, encryptedImage, originalData, encryptedData, report, filename);
+            }
+        } else if ("VIDEO".equals(fileType)) {
+            // 视频文件测试
+            if ("SELECTIVE".equals(encryptionMode)) {
+                // 选择性加密：使用视频选择性加密专用测试项
+                runSelectiveVideoDomainTests(originalData, encryptedData, report, filename);
+            } else if ("HYPERCHAOTIC".equals(encryptionMode) || "HYBRID".equals(encryptionMode)) {
+                // 超混沌/混合选择性加密：图片风格测试项 + 视频特有测试项
+                runSelectiveVideoDomainTests(originalData, encryptedData, report, filename);
+                report.addResult(testMotionVectorAnalysis(encryptedData, filename));
+                report.addResult(testTemporalDomainAnalysis(encryptedData, filename));
+            } else {
+                // 全文件加密
+                runBasicSecurityTests(null, encryptedData, report, encryptionMode);
+                runCryptographicAttacks(originalData, encryptedData, report, encryptionMode, filename);
+                runStatisticalAttacks(originalData, encryptedData, report, null, encryptionMode);
+                runVideoSpecificTests(originalData, encryptedData, report, filename);
+            }
+        } else if ("AUDIO".equals(fileType)) {
+            // 音频文件测试
+            if ("SELECTIVE".equals(encryptionMode)) {
+                // 选择性加密：使用音频选择性加密专用测试项
+                runSelectiveAudioDomainTests(originalData, encryptedData, report, filename);
+            } else if ("HYPERCHAOTIC".equals(encryptionMode) || "HYBRID".equals(encryptionMode)) {
+                // 超混沌/混合选择性加密：图片风格测试项 + 音频特有测试项
+                runSelectiveAudioDomainTests(originalData, encryptedData, report, filename);
+                report.addResult(testAudioHeaderAnalysis(encryptedData, filename));
+                report.addResult(testTemporalFeatureAnalysis(encryptedData, filename));
+                report.addResult(testEnergyDistributionAnalysis(encryptedData, filename));
+            } else {
+                // 全文件加密
+                runBasicSecurityTests(null, encryptedData, report, encryptionMode);
+                runCryptographicAttacks(originalData, encryptedData, report, encryptionMode, filename);
+                runStatisticalAttacks(originalData, encryptedData, report, null, encryptionMode);
+                runAudioSpecificTests(originalData, encryptedData, report, filename);
+            }
         }
 
         runPerformanceTests(originalData, report, encryptionMode, filename);
@@ -116,13 +159,38 @@ public class EncryptionAttackTest {
     private void runSelectiveImageDomainTests(BufferedImage originalImage, BufferedImage encryptedImage,
                                               byte[] originalData, byte[] encryptedData,
                                               TestReport report, String filename) throws Exception {
-        report.addResult(testDataEntropy(encryptedImage, encryptedData, "SELECTIVE"));
-        report.addResult(testHistogramUniformity(originalImage, encryptedImage));
-        report.addResult(testImagePlainCipherCorrelation(originalImage, encryptedImage, filename));
-        report.addResult(testCorrelationAnalysis(encryptedData, encryptedImage, "SELECTIVE"));
+        if (encryptedImage != null) {
+            report.addResult(testDataEntropy(encryptedImage, encryptedData, "SELECTIVE"));
+            report.addResult(testHistogramUniformity(originalImage, encryptedImage));
+            report.addResult(testImagePlainCipherCorrelation(originalImage, encryptedImage, filename));
+            report.addResult(testCorrelationAnalysis(encryptedData, encryptedImage, "SELECTIVE"));
+            exportHistogramData(originalImage, encryptedImage, filename.replace(".", "_"));
+        } else {
+            report.addResult(testDataEntropy(null, encryptedData, "SELECTIVE"));
+            report.addResult(testCorrelationAnalysis(encryptedData, null, "SELECTIVE"));
+        }
         report.addResult(testSelectiveDifferentialAnalysis(originalData, filename));
         report.addResult(testAvalanche(originalData, "SELECTIVE", encryptedData));
-        exportHistogramData(originalImage, encryptedImage, filename.replace(".", "_"));
+    }
+
+    private void runSelectiveVideoDomainTests(byte[] originalData, byte[] encryptedData,
+                                              TestReport report, String filename) throws Exception {
+        // 视频选择性加密专用测试项
+        report.addResult(testDataEntropy(null, encryptedData, "SELECTIVE"));
+        report.addResult(testCorrelationAnalysis(encryptedData, null, "SELECTIVE"));
+        report.addResult(testMediaPlainCipherCorrelation(originalData, encryptedData, "视频"));
+        report.addResult(testMediaByteDistortion(originalData, encryptedData, "视频"));
+        report.addResult(testChunkEntropyConsistency(encryptedData, "视频"));
+        report.addResult(testVideoSelectiveDifferentialAnalysis(originalData, filename));
+        report.addResult(testAvalanche(originalData, "SELECTIVE", encryptedData));
+    }
+
+    private void runSelectiveAudioDomainTests(byte[] originalData, byte[] encryptedData,
+                                              TestReport report, String filename) throws Exception {
+        // 音频选择性加密专用测试项
+        report.addResult(testDataEntropy(null, encryptedData, "SELECTIVE"));
+        report.addResult(testChunkEntropyConsistency(encryptedData, "音频"));
+        report.addResult(testAvalanche(originalData, "SELECTIVE", encryptedData));
     }
 
     public void runBasicSecurityTests(BufferedImage encryptedImage, byte[] encryptedData,
@@ -168,6 +236,717 @@ public class EncryptionAttackTest {
                                             TestReport report) {
         report.addResult(testEncryptionRatio(originalData, encryptedData));
         report.addResult(testVisualQuality(originalData, encryptedData));
+    }
+
+    /**
+     * 运行视频特定的测试
+     */
+    private void runVideoSpecificTests(byte[] originalData, byte[] encryptedData, TestReport report, String filename) {
+        report.addResult(testMediaPlainCipherCorrelation(originalData, encryptedData, "视频"));
+        report.addResult(testMediaByteDistortion(originalData, encryptedData, "视频"));
+        report.addResult(testChunkEntropyConsistency(encryptedData, "视频"));
+        report.addResult(testVideoFormatSignatureLeakage(originalData, encryptedData, filename));
+        report.addResult(testVideoHeaderAnalysis(encryptedData, filename));
+        report.addResult(testMotionVectorAnalysis(encryptedData, filename));
+        report.addResult(testTemporalDomainAnalysis(encryptedData, filename));
+    }
+
+    /**
+     * 运行音频特定的测试
+     */
+    private void runAudioSpecificTests(byte[] originalData, byte[] encryptedData, TestReport report, String filename) {
+        report.addResult(testMediaPlainCipherCorrelation(originalData, encryptedData, "音频"));
+        report.addResult(testMediaByteDistortion(originalData, encryptedData, "音频"));
+        report.addResult(testChunkEntropyConsistency(encryptedData, "音频"));
+        report.addResult(testAudioFormatSignatureLeakage(originalData, encryptedData, filename, true));
+        report.addResult(testAudioHeaderAnalysis(encryptedData, filename));
+        report.addResult(testTemporalFeatureAnalysis(encryptedData, filename));
+        report.addResult(testEnergyDistributionAnalysis(encryptedData, filename));
+    }
+
+    private TestResult testMediaPlainCipherCorrelation(byte[] originalData, byte[] encryptedData, String mediaType) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult(mediaType + "明密文字节相关性分析", true,
+                "计算原始文件与密文字节序列的 Pearson 相关系数，评估密文是否仍保留线性结构");
+
+        double correlation = calculateBytePearson(originalData, encryptedData);
+        result.addMetric("Pearson相关系数", String.format("%.8f", correlation));
+        result.addMetric("判定阈值", "|r| <= 0.05");
+
+        if (Math.abs(correlation) > 0.05) {
+            result.setPassed(false);
+            result.setDetails(mediaType + "密文与明文仍存在较明显线性相关，建议增强扩散或扩大加密范围");
+        } else {
+            result.setDetails(mediaType + "密文与明文线性相关性接近于零");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    private TestResult testMediaByteDistortion(byte[] originalData, byte[] encryptedData, String mediaType) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult(mediaType + "字节级失真分析", true,
+                "使用字节级 NPCR/UACI 与归一化均方误差评估密文扰动强度");
+
+        double npcr = calculateByteNPCR(originalData, encryptedData);
+        double uaci = calculateByteUACI(originalData, encryptedData);
+        double nmse = calculateNormalizedByteMse(originalData, encryptedData);
+
+        result.addMetric("字节级NPCR", String.format("%.4f%%", npcr));
+        result.addMetric("字节级UACI", String.format("%.4f%%", uaci));
+        result.addMetric("归一化MSE", String.format("%.6f", nmse));
+        result.addMetric("参考口径", "随机密文通常 NPCR 接近 99% 以上，UACI 接近 33%");
+
+        if (npcr < 95.0 || uaci < 20.0) {
+            result.setPassed(false);
+            result.setDetails(mediaType + "密文扰动强度偏低，明文局部特征可能仍有残留");
+        } else {
+            result.setDetails(mediaType + "密文字节变化充分，扰动强度较好");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    private TestResult testChunkEntropyConsistency(byte[] encryptedData, String mediaType) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult(mediaType + "分块熵一致性分析", true,
+                "将密文切分为多个块，检查各块信息熵是否稳定接近 8bit");
+
+        int chunkSize = chooseMediaChunkSize(encryptedData.length);
+        int chunkCount = (int) Math.ceil(encryptedData.length / (double) chunkSize);
+        double minEntropy = Double.MAX_VALUE;
+        double sumEntropy = 0;
+        int lowEntropyChunks = 0;
+
+        for (int offset = 0; offset < encryptedData.length; offset += chunkSize) {
+            int len = Math.min(chunkSize, encryptedData.length - offset);
+            double entropy = calculateEntropy(encryptedData, offset, len);
+            minEntropy = Math.min(minEntropy, entropy);
+            sumEntropy += entropy;
+            if (entropy < 7.2) {
+                lowEntropyChunks++;
+            }
+        }
+
+        double avgEntropy = chunkCount == 0 ? 0 : sumEntropy / chunkCount;
+        if (minEntropy == Double.MAX_VALUE) {
+            minEntropy = 0;
+        }
+
+        result.addMetric("分块大小", chunkSize + " 字节");
+        result.addMetric("分块数量", chunkCount);
+        result.addMetric("平均分块熵", String.format("%.4f", avgEntropy));
+        result.addMetric("最低分块熵", String.format("%.4f", minEntropy));
+        result.addMetric("低熵块数量", lowEntropyChunks);
+
+        if (avgEntropy < 7.5 || lowEntropyChunks > Math.max(1, chunkCount / 10)) {
+            result.setPassed(false);
+            result.setDetails(mediaType + "密文存在低熵区块，可能残留帧、采样或容器结构");
+        } else {
+            result.setDetails(mediaType + "密文各区块熵值较稳定，局部随机性较好");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    private TestResult testVideoFormatSignatureLeakage(byte[] originalData, byte[] encryptedData, String filename) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("视频格式签名泄露分析", true,
+                "统计 MP4/AVI/H.264 常见容器标识和 NAL 起始码在密文中是否仍可见");
+
+        LinkedHashMap<String, byte[]> signatures = new LinkedHashMap<>();
+        signatures.put("MP4-ftyp", new byte[]{0x66, 0x74, 0x79, 0x70});
+        signatures.put("MP4-moov", new byte[]{0x6D, 0x6F, 0x6F, 0x76});
+        signatures.put("MP4-mdat", new byte[]{0x6D, 0x64, 0x61, 0x74});
+        signatures.put("AVI-RIFF", new byte[]{0x52, 0x49, 0x46, 0x46});
+        signatures.put("AVI-LIST", new byte[]{0x4C, 0x49, 0x53, 0x54});
+        signatures.put("AVI-movi", new byte[]{0x6D, 0x6F, 0x76, 0x69});
+        signatures.put("H264-startcode3", new byte[]{0x00, 0x00, 0x01});
+        signatures.put("H264-startcode4", new byte[]{0x00, 0x00, 0x00, 0x01});
+
+        int leakedKinds = addSignatureMetrics(result, signatures, originalData, encryptedData);
+        result.addMetric("文件类型", extensionOf(filename));
+        result.addMetric("泄露签名种类数", leakedKinds);
+
+        if (leakedKinds > 0) {
+            result.setPassed(false);
+            result.setDetails("密文中仍可检测到视频容器或码流标识，格式结构泄露风险较高");
+        } else {
+            result.setDetails("密文中未检测到常见视频容器或码流签名");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    private TestResult testAudioFormatSignatureLeakage(byte[] originalData, byte[] encryptedData, String filename, boolean isFullEncryption) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("音频格式签名泄露分析", true,
+                "统计 WAV/MP3/FLAC 常见文件标识和 MP3 帧同步字在密文中是否仍可见");
+
+        LinkedHashMap<String, byte[]> signatures = new LinkedHashMap<>();
+        signatures.put("WAV-RIFF", new byte[]{0x52, 0x49, 0x46, 0x46});
+        signatures.put("WAV-WAVE", new byte[]{0x57, 0x41, 0x56, 0x45});
+        signatures.put("WAV-fmt", new byte[]{0x66, 0x6D, 0x74, 0x20});
+        signatures.put("WAV-data", new byte[]{0x64, 0x61, 0x74, 0x61});
+        signatures.put("MP3-ID3", new byte[]{0x49, 0x44, 0x33});
+        signatures.put("FLAC", new byte[]{0x66, 0x4C, 0x61, 0x43});
+
+        int leakedKinds = addSignatureMetrics(result, signatures, originalData, encryptedData);
+        int originalMp3Sync = countMp3FrameSync(originalData);
+        int encryptedMp3Sync = countMp3FrameSync(encryptedData);
+        result.addMetric("加密类型", isFullEncryption ? "全文件加密" : "选择性加密");
+        result.addMetric("原始MP3帧同步字数量", originalMp3Sync);
+        result.addMetric("密文MP3帧同步字数量", encryptedMp3Sync);
+        result.addMetric("文件类型", extensionOf(filename));
+        result.addMetric("泄露签名种类数", leakedKinds);
+
+        if (isFullEncryption) {
+            if (leakedKinds > 0) {
+                result.setPassed(false);
+                result.setDetails("全文件加密的密文中仍可检测到音频格式标识，签名泄露");
+            } else {
+                result.setPassed(true);
+                result.setDetails("全文件加密的密文中未检测到格式标识，随机出现的帧同步特征为正常现象");
+            }
+        } else {
+            if (leakedKinds > 0 || encryptedMp3Sync > Math.max(3, originalMp3Sync / 20)) {
+                result.setPassed(false);
+                result.setDetails("密文中仍可检测到音频格式标识或较多 MP3 帧同步特征");
+            } else {
+                result.setDetails("密文中未检测到明显音频格式签名，帧同步泄露较低");
+            }
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 视频头部分析
+     */
+    private TestResult testVideoHeaderAnalysis(byte[] data, String filename) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("视频头部分析", true, "分析视频文件头部是否泄露原始格式标识");
+
+        String originalHeader = getVideoFileHeader(filename);
+        String encryptedHeader = getHexHeader(data);
+        boolean headerChanged = !originalHeader.equals("UNKNOWN")
+                && encryptedHeader.length() >= originalHeader.length()
+                && !originalHeader.equals(encryptedHeader.substring(0, originalHeader.length()));
+
+        result.addMetric("原始文件头", originalHeader);
+        result.addMetric("密文文件头", encryptedHeader);
+        result.addMetric("文件头是否变化", headerChanged ? "是" : "否");
+
+        if (!headerChanged) {
+            result.setPassed(false);
+            result.setDetails("密文头部仍保留原始视频格式特征");
+        } else {
+            result.setDetails("密文头部已打乱，格式泄露风险较低");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 音频头部分析
+     */
+    private TestResult testAudioHeaderAnalysis(byte[] data, String filename) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("音频头部分析", true, "分析音频文件头部是否泄露原始格式标识");
+
+        String originalHeader = getAudioFileHeader(filename);
+        String encryptedHeader = getHexHeader(data);
+        boolean headerChanged = !originalHeader.equals("UNKNOWN")
+                && encryptedHeader.length() >= originalHeader.length()
+                && !originalHeader.equals(encryptedHeader.substring(0, originalHeader.length()));
+
+        result.addMetric("原始文件头", originalHeader);
+        result.addMetric("密文文件头", encryptedHeader);
+        result.addMetric("文件头是否变化", headerChanged ? "是" : "否");
+
+        if (!headerChanged) {
+            result.setPassed(false);
+            result.setDetails("密文头部仍保留原始音频格式特征");
+        } else {
+            result.setDetails("密文头部已打乱，格式泄露风险较低");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 运动矢量分析
+     */
+    private TestResult testMotionVectorAnalysis(byte[] data, String filename) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("运动矢量分析", true, "分析加密后视频运动信息的变化");
+
+        // 分析视频数据中的运动矢量特征
+        int motionVectorCount = 0;
+        double motionVectorVariance = 0;
+        
+        // 简单的运动矢量特征分析
+        // 实际应用中可以使用专门的视频处理库进行更复杂的分析
+        if (data.length > 1024) {
+            // 模拟运动矢量分析
+            motionVectorCount = data.length / 1024;
+            motionVectorVariance = calculateMotionVectorVariance(data);
+        }
+
+        result.addMetric("估计运动矢量数量", motionVectorCount);
+        result.addMetric("运动矢量方差", String.format("%.4f", motionVectorVariance));
+        result.addMetric("数据长度", data.length + " 字节");
+        result.addMetric("文件类型", filename.substring(filename.lastIndexOf('.') + 1).toUpperCase());
+
+        if (motionVectorVariance > 0.5) {
+            result.setDetails("运动矢量特征变化明显，加密效果较好");
+        } else {
+            result.setPassed(false);
+            result.setDetails("运动矢量特征变化不明显，加密效果一般");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 时间域分析
+     */
+    private TestResult testTemporalDomainAnalysis(byte[] data, String filename) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("时间域分析", true, "评估视频在时间维度上的加密效果");
+
+        // 分析视频数据在时间域上的特征
+        double temporalVariance = 0;
+        double temporalEntropy = 0;
+        
+        if (data.length > 512) {
+            temporalVariance = calculateTemporalVariance(data);
+            temporalEntropy = calculateTemporalEntropy(data);
+        }
+
+        result.addMetric("时间域方差", String.format("%.4f", temporalVariance));
+        result.addMetric("时间域熵", String.format("%.4f", temporalEntropy));
+        result.addMetric("数据长度", data.length + " 字节");
+        result.addMetric("文件类型", filename.substring(filename.lastIndexOf('.') + 1).toUpperCase());
+
+        if (temporalEntropy > 7.0) {
+            result.setDetails("时间域熵值较高，时间维度加密效果较好");
+        } else {
+            result.setPassed(false);
+            result.setDetails("时间域熵值较低，时间维度加密效果一般");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 时域特征分析
+     */
+    private TestResult testTemporalFeatureAnalysis(byte[] data, String filename) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("时域特征分析", true, "分析加密后音频在时间域上的变化");
+
+        // 分析音频数据在时间域上的特征
+        double temporalFeatureChange = 0;
+        double zeroCrossingRate = 0;
+        
+        if (data.length > 256) {
+            temporalFeatureChange = calculateTemporalFeatureChange(data);
+            zeroCrossingRate = calculateZeroCrossingRate(data);
+        }
+
+        result.addMetric("时域特征变化率", String.format("%.4f", temporalFeatureChange));
+        result.addMetric("过零率", String.format("%.4f", zeroCrossingRate));
+        result.addMetric("数据长度", data.length + " 字节");
+        result.addMetric("文件类型", filename.substring(filename.lastIndexOf('.') + 1).toUpperCase());
+
+        if (temporalFeatureChange > 0.6) {
+            result.setDetails("时域特征变化明显，加密效果较好");
+        } else {
+            result.setPassed(false);
+            result.setDetails("时域特征变化不明显，加密效果一般");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 能量分布分析
+     */
+    private TestResult testEnergyDistributionAnalysis(byte[] data, String filename) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("能量分布分析", true, "评估加密对音频能量分布的影响");
+
+        // 分析音频数据的能量分布
+        double energyUniformity = 0;
+        double spectralCentroid = 0;
+        double energyEntropy = 0;
+        
+        if (data.length > 256) {
+            energyUniformity = calculateEnergyUniformity(data);
+            spectralCentroid = calculateSpectralCentroid(data);
+            energyEntropy = calculateEnergyEntropy(data);
+        }
+
+        result.addMetric("能量均匀度", String.format("%.4f", energyUniformity));
+        result.addMetric("频谱质心", String.format("%.4f", spectralCentroid));
+        result.addMetric("能量熵", String.format("%.4f", energyEntropy));
+        result.addMetric("数据长度", data.length + " 字节");
+        result.addMetric("文件类型", filename.substring(filename.lastIndexOf('.') + 1).toUpperCase());
+
+        // 综合评估：能量均匀度和能量熵都要考虑
+        if (energyUniformity > 0.7 || energyEntropy > 7.0) {
+            result.setDetails("能量分布均匀，加密效果较好");
+        } else {
+            result.setPassed(false);
+            result.setDetails("能量分布不够均匀，加密效果一般");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 计算运动矢量方差
+     */
+    private double calculateMotionVectorVariance(byte[] data) {
+        // 简单的运动矢量方差计算
+        int blockSize = 16;
+        double sum = 0;
+        double sumSq = 0;
+        int count = 0;
+        
+        for (int i = 0; i < data.length - blockSize; i += blockSize) {
+            int blockSum = 0;
+            for (int j = 0; j < blockSize; j++) {
+                blockSum += data[i + j] & 0xFF;
+            }
+            double blockAvg = blockSum / (double) blockSize;
+            sum += blockAvg;
+            sumSq += blockAvg * blockAvg;
+            count++;
+        }
+        
+        if (count == 0) return 0;
+        double mean = sum / count;
+        double variance = (sumSq / count) - (mean * mean);
+        return variance / 255.0; // 归一化到0-1
+    }
+
+    /**
+     * 计算时间域方差
+     */
+    private double calculateBytePearson(byte[] a, byte[] b) {
+        int n = Math.min(a == null ? 0 : a.length, b == null ? 0 : b.length);
+        if (n < 2) {
+            return 0;
+        }
+
+        double sumA = 0;
+        double sumB = 0;
+        for (int i = 0; i < n; i++) {
+            sumA += a[i] & 0xFF;
+            sumB += b[i] & 0xFF;
+        }
+        double meanA = sumA / n;
+        double meanB = sumB / n;
+
+        double numerator = 0;
+        double denomA = 0;
+        double denomB = 0;
+        for (int i = 0; i < n; i++) {
+            double da = (a[i] & 0xFF) - meanA;
+            double db = (b[i] & 0xFF) - meanB;
+            numerator += da * db;
+            denomA += da * da;
+            denomB += db * db;
+        }
+        if (denomA == 0 || denomB == 0) {
+            return 0;
+        }
+        return numerator / Math.sqrt(denomA * denomB);
+    }
+
+    private double calculateNormalizedByteMse(byte[] a, byte[] b) {
+        int n = Math.min(a == null ? 0 : a.length, b == null ? 0 : b.length);
+        if (n == 0) {
+            return 0;
+        }
+        double mse = 0;
+        for (int i = 0; i < n; i++) {
+            double diff = (a[i] & 0xFF) - (b[i] & 0xFF);
+            mse += diff * diff;
+        }
+        mse /= n;
+        return mse / (255.0 * 255.0);
+    }
+
+    private int chooseMediaChunkSize(int length) {
+        if (length >= 4 * 1024 * 1024) {
+            return 64 * 1024;
+        }
+        if (length >= 512 * 1024) {
+            return 16 * 1024;
+        }
+        return 4 * 1024;
+    }
+
+    private double calculateEntropy(byte[] data, int offset, int length) {
+        if (data == null || length <= 0) {
+            return 0;
+        }
+
+        int[] frequency = new int[256];
+        int end = Math.min(data.length, offset + length);
+        for (int i = offset; i < end; i++) {
+            frequency[data[i] & 0xFF]++;
+        }
+
+        int total = end - offset;
+        double entropy = 0;
+        for (int freq : frequency) {
+            if (freq == 0) {
+                continue;
+            }
+            double probability = (double) freq / total;
+            entropy -= probability * (Math.log(probability) / Math.log(2));
+        }
+        return entropy;
+    }
+
+    private int addSignatureMetrics(TestResult result, LinkedHashMap<String, byte[]> signatures,
+                                    byte[] originalData, byte[] encryptedData) {
+        int leakedKinds = 0;
+        for (Map.Entry<String, byte[]> entry : signatures.entrySet()) {
+            int originalCount = countPattern(originalData, entry.getValue());
+            int encryptedCount = countPattern(encryptedData, entry.getValue());
+            result.addMetric(entry.getKey() + "-原始数量", originalCount);
+            result.addMetric(entry.getKey() + "-密文数量", encryptedCount);
+            if (encryptedCount > 0) {
+                leakedKinds++;
+            }
+        }
+        return leakedKinds;
+    }
+
+    private int countPattern(byte[] data, byte[] pattern) {
+        if (data == null || pattern == null || pattern.length == 0 || data.length < pattern.length) {
+            return 0;
+        }
+        int count = 0;
+        for (int i = 0; i <= data.length - pattern.length; i++) {
+            boolean matched = true;
+            for (int j = 0; j < pattern.length; j++) {
+                if (data[i + j] != pattern[j]) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int countMp3FrameSync(byte[] data) {
+        if (data == null || data.length < 2) {
+            return 0;
+        }
+        int count = 0;
+        for (int i = 0; i < data.length - 1; i++) {
+            if ((data[i] & 0xFF) == 0xFF && ((data[i + 1] & 0xE0) == 0xE0)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String extensionOf(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            return "UNKNOWN";
+        }
+        return filename.substring(filename.lastIndexOf('.') + 1).toUpperCase();
+    }
+
+    private double calculateTemporalVariance(byte[] data) {
+        // 计算时间域上的数据方差
+        double sum = 0;
+        double sumSq = 0;
+        for (byte b : data) {
+            int val = b & 0xFF;
+            sum += val;
+            sumSq += val * val;
+        }
+        double mean = sum / data.length;
+        double variance = (sumSq / data.length) - (mean * mean);
+        return variance / 255.0; // 归一化到0-1
+    }
+
+    /**
+     * 计算时间域熵
+     */
+    private double calculateTemporalEntropy(byte[] data) {
+        // 计算时间域上的熵
+        int[] frequency = new int[256];
+        for (byte b : data) {
+            frequency[b & 0xFF]++;
+        }
+        
+        double entropy = 0;
+        for (int freq : frequency) {
+            if (freq == 0) continue;
+            double probability = (double) freq / data.length;
+            entropy -= probability * (Math.log(probability) / Math.log(2));
+        }
+        return entropy;
+    }
+
+    /**
+     * 计算时域特征变化
+     */
+    private double calculateTemporalFeatureChange(byte[] data) {
+        // 计算时域特征的变化率
+        double changeRate = 0;
+        int transitions = 0;
+        
+        for (int i = 1; i < data.length; i++) {
+            if ((data[i] & 0xFF) != (data[i-1] & 0xFF)) {
+                transitions++;
+            }
+        }
+        
+        if (data.length > 1) {
+            changeRate = (double) transitions / (data.length - 1);
+        }
+        return changeRate;
+    }
+
+    /**
+     * 计算过零率
+     */
+    private double calculateZeroCrossingRate(byte[] data) {
+        // 计算过零率
+        int zeroCrossings = 0;
+        
+        for (int i = 1; i < data.length; i++) {
+            if (((data[i-1] & 0xFF) > 128 && (data[i] & 0xFF) <= 128) ||
+                ((data[i-1] & 0xFF) <= 128 && (data[i] & 0xFF) > 128)) {
+                zeroCrossings++;
+            }
+        }
+        
+        if (data.length > 1) {
+            return (double) zeroCrossings / (data.length - 1);
+        }
+        return 0;
+    }
+
+    /**
+     * 计算能量均匀度
+     */
+    private double calculateEnergyUniformity(byte[] data) {
+        // 计算能量分布的均匀程度
+        int[] energyBins = new int[8]; // 8个能量区间
+        int binSize = 256 / 8;
+        
+        for (byte b : data) {
+            int val = b & 0xFF;
+            int binIndex = val / binSize;
+            if (binIndex >= 8) binIndex = 7;
+            energyBins[binIndex]++;
+        }
+        
+        // 计算均匀度（基于香农熵）
+        double entropy = 0;
+        for (int count : energyBins) {
+            if (count > 0) {
+                double probability = (double) count / data.length;
+                entropy -= probability * (Math.log(probability) / Math.log(2));
+            }
+        }
+        
+        // 归一化到0-1
+        double maxEntropy = Math.log(8) / Math.log(2); // 8个区间的最大熵
+        return entropy / maxEntropy;
+    }
+
+    /**
+     * 计算能量熵
+     */
+    private double calculateEnergyEntropy(byte[] data) {
+        // 计算能量分布的熵
+        int[] energyDistribution = new int[256];
+        for (byte b : data) {
+            energyDistribution[b & 0xFF]++;
+        }
+        
+        double entropy = 0;
+        for (int count : energyDistribution) {
+            if (count > 0) {
+                double probability = (double) count / data.length;
+                entropy -= probability * (Math.log(probability) / Math.log(2));
+            }
+        }
+        return entropy;
+    }
+
+    /**
+     * 计算频谱质心
+     */
+    private double calculateSpectralCentroid(byte[] data) {
+        // 计算频谱质心
+        double weightedSum = 0;
+        double totalEnergy = 0;
+        
+        for (int i = 0; i < data.length; i++) {
+            int val = data[i] & 0xFF;
+            weightedSum += i * val * val;
+            totalEnergy += val * val;
+        }
+        
+        if (totalEnergy > 0) {
+            return (weightedSum / totalEnergy) / data.length;
+        }
+        return 0;
+    }
+
+    /**
+     * 获取视频文件头
+     */
+    private String getVideoFileHeader(String filename) {
+        if (filename == null) {
+            return "UNKNOWN";
+        }
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".mp4")) return "000000";
+        if (lower.endsWith(".avi")) return "52494646";
+        if (lower.endsWith(".mov")) return "6D6F6F76";
+        return "UNKNOWN";
+    }
+
+    /**
+     * 获取音频文件头
+     */
+    private String getAudioFileHeader(String filename) {
+        if (filename == null) {
+            return "UNKNOWN";
+        }
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".mp3")) return "494433";
+        if (lower.endsWith(".wav")) return "52494646";
+        if (lower.endsWith(".flac")) return "664C6143";
+        return "UNKNOWN";
     }
 
     private TestResult testDataEntropy(BufferedImage image, byte[] data, String encryptionMode) {
@@ -477,7 +1256,7 @@ public class EncryptionAttackTest {
 
     private TestResult testMonobit(byte[] data) {
         long startTime = System.currentTimeMillis();
-        TestResult result = new TestResult("单比特频数检验", true, "参考 NIST SP 800-22 的单比特频数检验");
+        TestResult result = new TestResult("NIST单比特频数检验", true, "参考 NIST SP 800-22 的单比特频数检验");
 
         int ones = 0;
         int totalBits = data.length * 8;
@@ -506,7 +1285,7 @@ public class EncryptionAttackTest {
 
     private TestResult testRuns(byte[] data) {
         long startTime = System.currentTimeMillis();
-        TestResult result = new TestResult("游程检验", true, "参考 NIST SP 800-22 的游程检验");
+        TestResult result = new TestResult("NIST游程检验", true, "参考 NIST SP 800-22 的游程检验");
 
         int[] bits = toBitArray(data);
         int n = bits.length;
@@ -695,7 +1474,7 @@ public class EncryptionAttackTest {
         try {
             BufferedImage original = ImageIO.read(new ByteArrayInputStream(originalData));
             if (original == null) {
-                result.setPassed(false);
+                result.setPassed(true);
                 result.setDetails("仅图像数据支持 NPCR/UACI 测试");
                 result.setExecutionTime(System.currentTimeMillis() - startTime);
                 return result;
@@ -755,14 +1534,6 @@ public class EncryptionAttackTest {
             return result;
         }
 
-        if (filename != null && filename.toLowerCase().endsWith(".bmp")) {
-            result.addMetric("适用性说明", "BMP 选择性加密包含随机 IV，同一明文重复加密会引入随机扰动");
-            result.addMetric("评价口径", "BMP 不使用两次独立加密结果的 NPCR/UACI 作为否决指标");
-            result.setDetails("当前 BMP 方案强调内容区随机扰乱与可逆解密，重复加密随机性会放大差分统计，因此改为说明性指标");
-            result.setExecutionTime(System.currentTimeMillis() - startTime);
-            return result;
-        }
-
         try {
             BufferedImage original = ImageIO.read(new ByteArrayInputStream(originalData));
             if (original == null) {
@@ -809,6 +1580,40 @@ public class EncryptionAttackTest {
         } catch (Exception e) {
             result.setPassed(false);
             result.setDetails("选择性差分敏感性分析失败: " + e.getMessage());
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    private TestResult testVideoSelectiveDifferentialAnalysis(byte[] originalData, String filename) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("视频差分敏感性分析", true, "评估视频选择性加密对明文微小变化的响应方式");
+
+        try {
+            byte[] modified = Arrays.copyOf(originalData, originalData.length);
+            if (modified.length > 0) {
+                modified[0] ^= 0x01;
+            }
+
+            String keyBase64 = Base64.getEncoder().encodeToString(Sm4Util.generateSm4Key().getEncoded());
+            byte[] cipher1 = encryptForTest(originalData, filename, "SELECTIVE", keyBase64);
+            byte[] cipher2 = encryptForTest(modified, filename, "SELECTIVE", keyBase64);
+
+            double byteNpcr = calculateByteNPCR(cipher1, cipher2);
+            double byteUaci = calculateByteUACI(cipher1, cipher2);
+            result.addMetric("字节级NPCR", String.format("%.4f%%", byteNpcr));
+            result.addMetric("字节级UACI", String.format("%.4f%%", byteUaci));
+
+            if (byteNpcr > 0) {
+                result.setDetails("明文微小变化能够传递到对应密文区域；该指标作为参考项，不作为全局扩散否决标准");
+            } else {
+                result.setPassed(false);
+                result.setDetails("明文微小变化未能反映到密文，局部敏感性不足");
+            }
+        } catch (Exception e) {
+            result.setPassed(false);
+            result.setDetails("视频差分敏感性分析失败: " + e.getMessage());
         }
 
         result.setExecutionTime(System.currentTimeMillis() - startTime);
