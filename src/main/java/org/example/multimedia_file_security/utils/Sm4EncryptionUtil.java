@@ -142,6 +142,23 @@ public class Sm4EncryptionUtil {
     }
 
     /**
+     * 全文件加密 - 图像文件使用双重加密（超混沌+SM4），其他文件使用纯SM4
+     * @param fileData 文件数据字节数组
+     * @param filename 原始文件名，用于判断文件类型
+     * @param sm4Key SM4密钥（Base64格式）
+     * @return 加密后的字节数组
+     */
+    public static byte[] newFullEncrypt(byte[] fileData, String filename, String sm4Key) throws Exception {
+        if (filename != null && isImageFile(filename.toLowerCase())) {
+            // 图像文件：先超混沌XOR加密，再SM4全文件加密
+            HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+            return HyperchaoticChenUtil.hybridEncrypt(fileData, config, sm4Key);
+        }
+        // 非图像文件：保持原有SM4全文件加密
+        return fullEncrypt(fileData, sm4Key, "CBC");
+    }
+
+    /**
      * 全文件加密 - 支持选择加密模式
      * @param fileData 文件数据字节数组
      * @param sm4Key SM4密钥（Base64格式）
@@ -201,6 +218,8 @@ public class Sm4EncryptionUtil {
         // 根据文件类型选择不同的加密策略
         if (isImageFile(filename)) {
             return selectiveImageEncrypt(fileData, filename, sm4Key);
+        } else if (isAudioFile(filename)) {
+            return selectiveAudioEncrypt(fileData, filename, sm4Key);
         } else if (isVideoFile(filename)) {
             return selectiveVideoEncrypt(fileData, filename, sm4Key);
         } else {
@@ -223,6 +242,23 @@ public class Sm4EncryptionUtil {
             return selectiveEncryptJpg(imageData, sm4Key);
         } else {
             throw new RuntimeException("不支持的文件格式");
+        }
+    }
+
+    /**
+     * 音频文件选择性加密
+     */
+    private static byte[] selectiveAudioEncrypt(byte[] audioData, String filename, String sm4Key) throws Exception {
+        // 使用超混沌系统的默认配置
+        HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+
+        if (filename.endsWith(".wav")) {
+            return WavSelectiveEncryptionUtil.selectiveEncryptWav(audioData, config);
+        } else if (filename.endsWith(".mp3")) {
+            return Mp3SelectiveEncryptionUtil.selectiveEncryptMp3(audioData, config);
+        } else {
+            // 其他音频格式默认使用全文件加密
+            return fullEncrypt(audioData, sm4Key);
         }
     }
 
@@ -389,36 +425,40 @@ public class Sm4EncryptionUtil {
      * 视频文件选择性加密
      */
     private static byte[] selectiveVideoEncrypt(byte[] videoData, String filename, String sm4Key) throws Exception {
-        // 视频选择性加密：加密关键帧数据
+        HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+
+        if (filename.endsWith(".avi")) {
+            return AviSelectiveEncryptionUtil.selectiveEncryptAvi(videoData, config);
+        } else if (filename.endsWith(".mp4")) {
+            return Mp4SelectiveEncryptionUtil.selectiveEncryptMp4(videoData, config);
+        }
+
         int headerSize = getVideoHeaderSize(filename);
 
         if (headerSize >= videoData.length) {
             return fullEncrypt(videoData, sm4Key);
         }
 
-        // 简单的块加密策略：每10KB数据选择加密30%
-        int blockSize = 10 * 1024; // 10KB块
+        int blockSize = 10 * 1024;
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 
-        // 保留文件头
         byte[] header = Arrays.copyOfRange(videoData, 0, headerSize);
         outputStream.write(header);
 
-        // 对剩余数据分块处理
         byte[] videoContent = Arrays.copyOfRange(videoData, headerSize, videoData.length);
 
         for (int i = 0; i < videoContent.length; i += blockSize) {
             int end = Math.min(i + blockSize, videoContent.length);
             byte[] block = Arrays.copyOfRange(videoContent, i, end);
 
-            if (SECURE_RANDOM.nextDouble() < 0.3) { // 30%的块进行加密
+            if (SECURE_RANDOM.nextDouble() < 0.3) {
                 byte[] encryptedBlock = fullEncrypt(block, sm4Key);
-                outputStream.write(0x01); // 标记加密块
-                outputStream.write(intToBytes(encryptedBlock.length)); // 加密块长度
+                outputStream.write(0x01);
+                outputStream.write(intToBytes(encryptedBlock.length));
                 outputStream.write(encryptedBlock);
             } else {
-                outputStream.write(0x00); // 标记未加密块
-                outputStream.write(intToBytes(block.length)); // 原始块长度
+                outputStream.write(0x00);
+                outputStream.write(intToBytes(block.length));
                 outputStream.write(block);
             }
         }
@@ -430,6 +470,23 @@ public class Sm4EncryptionUtil {
      * 全文件解密
      */
     public static byte[] fullDecrypt(byte[] encryptedData, String sm4Key) throws Exception {
+        return fullDecrypt(encryptedData, sm4Key, "CBC");
+    }
+
+    /**
+     * 全文件解密 - 图像文件使用双重解密（SM4+超混沌），其他文件使用纯SM4
+     * @param encryptedData 加密数据字节数组
+     * @param filename 原始文件名，用于判断文件类型
+     * @param sm4Key SM4密钥（Base64格式）
+     * @return 解密后的字节数组
+     */
+    public static byte[] newFullDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
+        if (filename != null && isImageFile(filename.toLowerCase())) {
+            // 图像文件：先SM4解密，再超混沌XOR解密
+            HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+            return HyperchaoticChenUtil.hybridDecrypt(encryptedData, config, sm4Key);
+        }
+        // 非图像文件：保持原有SM4全文件解密
         return fullDecrypt(encryptedData, sm4Key, "CBC");
     }
 
@@ -473,8 +530,23 @@ public class Sm4EncryptionUtil {
 
         if (isImageFile(filename)) {
             return selectiveImageDecrypt(encryptedData, filename, sm4Key);
+        } else if (isAudioFile(filename)) {
+            return selectiveAudioDecrypt(encryptedData, filename, sm4Key);
         } else if (isVideoFile(filename)) {
             return selectiveVideoDecrypt(encryptedData, filename, sm4Key);
+        } else {
+            return fullDecrypt(encryptedData, sm4Key);
+        }
+    }
+
+    private static byte[] selectiveAudioDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
+        // 使用超混沌系统的默认配置
+        HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+
+        if (filename.endsWith(".wav")) {
+            return WavSelectiveEncryptionUtil.decryptWav(encryptedData, config);
+        } else if (filename.endsWith(".mp3")) {
+            return Mp3SelectiveEncryptionUtil.decryptMp3(encryptedData, config);
         } else {
             return fullDecrypt(encryptedData, sm4Key);
         }
@@ -493,6 +565,14 @@ public class Sm4EncryptionUtil {
     }
 
     private static byte[] selectiveVideoDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
+        HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+
+        if (filename.endsWith(".avi")) {
+            return AviSelectiveEncryptionUtil.decryptAvi(encryptedData, config);
+        } else if (filename.endsWith(".mp4")) {
+            return Mp4SelectiveEncryptionUtil.decryptMp4(encryptedData, config);
+        }
+
         int headerSize = getVideoHeaderSize(filename);
 
         if (headerSize >= encryptedData.length) {
@@ -531,6 +611,11 @@ public class Sm4EncryptionUtil {
     private static boolean isImageFile(String filename) {
         return filename.endsWith(".bmp") || filename.endsWith(".png") ||
                 filename.endsWith(".jpg") || filename.endsWith(".jpeg");
+    }
+
+    private static boolean isAudioFile(String filename) {
+        return filename.endsWith(".wav") || filename.endsWith(".mp3") ||
+                filename.endsWith(".aac") || filename.endsWith(".flac");
     }
 
     private static boolean isVideoFile(String filename) {

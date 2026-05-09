@@ -293,8 +293,9 @@ public class FileServiceImpl implements FileService {
             // 选择性加密
             return selectiveEncrypt(file, sm4Key);
         } else {
-            // 全文件加密
-            return fullEncrypt(file.getBytes(), sm4Key);
+            // 全文件加密：传入文件名以支持图像双重加密
+            String filename = file.getOriginalFilename();
+            return newFullEncrypt(file.getBytes(), filename, sm4Key);
         }
     }
 
@@ -332,7 +333,7 @@ public class FileServiceImpl implements FileService {
                     fileRecord.getEncryptionMode(), fileRecord.getOriginalFilename());
 
             // 8. 验证文件完整性（根据加密模式选择验证方式）
-            if (!fileRecord.getOriginalFilename().endsWith(".jpg") && !fileRecord.getOriginalFilename().endsWith(".jpeg")){
+            if (!fileRecord.getOriginalFilename().endsWith(".jpg") && !fileRecord.getOriginalFilename().endsWith(".jpeg") && !fileRecord.getOriginalFilename().endsWith(".mp3")){
                 if ("SELECTIVE".equals(fileRecord.getEncryptionMode()) &&
                         isImageFile(fileRecord.getOriginalFilename())) {
                     // 选择性加密图像：验证像素级哈希
@@ -478,8 +479,8 @@ public class FileServiceImpl implements FileService {
             // 选择性解密
             decryptedData = selectiveDecrypt(encryptedData, originalFilename, sm4Key);
         } else {
-            // 全文件解密
-            decryptedData = fullDecrypt(encryptedData, sm4Key);
+            // 全文件解密：传入文件名以支持图像双重解密
+            decryptedData = newFullDecrypt(encryptedData, originalFilename, sm4Key);
         }
 
         log.info("解密完成: 输出大小={}字节", decryptedData.length);
