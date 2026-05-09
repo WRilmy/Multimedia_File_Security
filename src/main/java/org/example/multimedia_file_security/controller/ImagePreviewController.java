@@ -1,6 +1,5 @@
 package org.example.multimedia_file_security.controller;
 
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.example.multimedia_file_security.pojo.FileRecord;
@@ -14,7 +13,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
@@ -29,88 +27,62 @@ public class ImagePreviewController {
     private Sm4EncryptionUtil sm4EncryptionUtil;
 
     /**
-     * 图片预览接口 - 直接显示加密后的雪花图片
-     * 返回加密后的图片数据，浏览器可以直接显示
+     * 文件预览接口 - 直接返回加密后的文件数据
+     * 图片：浏览器直接显示雪花图；音频：浏览器/Postman直接播放
      */
     @GetMapping("/{fileId}/preview")
-    public void previewImage(
+    public ResponseEntity<byte[]> previewFile(
             @PathVariable Long fileId,
             @RequestParam(required = false) Integer width,
             @RequestParam(required = false) Integer height,
-            @RequestParam(required = false, defaultValue = "false") boolean original,
-            HttpServletResponse response) {
+            @RequestParam(required = false, defaultValue = "false") boolean original) {
 
         try {
             Long userId = UserThreadLocal.getCurrentId();
             if (userId == null) {
-                response.sendError(401, "用户未登录");
-                return;
+                return ResponseEntity.status(401).build();
             }
 
-            // 1. 获取文件记录
             FileRecord fileRecord = fileService.getFileRecordById(fileId);
             if (fileRecord == null) {
-                response.sendError(404, "文件不存在");
-                return;
+                return ResponseEntity.notFound().build();
             }
 
-            // 2. 检查是否为图片文件
-            if (!isImageFile(fileRecord.getFileType(), fileRecord.getOriginalFilename())) {
-                response.sendError(400, "非图片文件，不支持预览");
-                return;
+            if (!isPreviewableFile(fileRecord.getFileType(), fileRecord.getOriginalFilename())) {
+                return ResponseEntity.badRequest().build();
             }
 
-            // 3. 获取加密后的图片数据
-            byte[] imageData = fileService.getEncryptedFileData(fileId);
-            if (imageData == null || imageData.length == 0) {
-                response.sendError(404, "图片数据为空");
-                return;
+            byte[] fileData = fileService.getEncryptedFileData(fileId);
+            if (fileData == null || fileData.length == 0) {
+                return ResponseEntity.notFound().build();
             }
 
-            // 4. 获取图片内容类型
-            String contentType = getImageContentType(fileRecord.getOriginalFilename(),
+            String contentType = getFileContentType(fileRecord.getOriginalFilename(),
                     fileRecord.getFileType());
 
-            // 5. 设置响应头
-            response.setContentType(contentType);
-            response.setCharacterEncoding("UTF-8");
-
-            // 设置缓存（图片预览可以缓存）
-            response.setHeader("Cache-Control", "public, max-age=31536000"); // 1年缓存
-            response.setHeader("Expires", "Mon, 31 Dec 2035 12:00:00 GMT");
-
-            // 6. 可选：生成缩略图
-            if (width != null || height != null) {
-                byte[] thumbnail = generateThumbnail(imageData,
+            byte[] responseData = fileData;
+            if ((width != null || height != null) && isImageFile(fileRecord.getFileType(), fileRecord.getOriginalFilename())) {
+                responseData = generateThumbnail(fileData,
                         fileRecord.getOriginalFilename(),
                         width != null ? width : 300,
                         height != null ? height : 300);
-                response.setContentLength(thumbnail.length);
-
-                try (OutputStream out = response.getOutputStream()) {
-                    out.write(thumbnail);
-                    out.flush();
-                }
-            } else {
-                // 7. 直接返回原图
-                response.setContentLength(imageData.length);
-
-                try (OutputStream out = response.getOutputStream()) {
-                    out.write(imageData);
-                    out.flush();
-                }
             }
 
-            log.info("图片预览成功: fileId={}, filename={}, size={}",
-                    fileId, fileRecord.getOriginalFilename(), imageData.length);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.parseMediaType(contentType));
+            headers.setContentLength(responseData.length);
+            headers.setCacheControl(CacheControl.maxAge(Duration.ofDays(365)).cachePublic());
+
+            log.info("文件预览成功: fileId={}, filename={}, size={}, contentType={}",
+                    fileId, fileRecord.getOriginalFilename(), responseData.length, contentType);
+
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .body(responseData);
 
         } catch (Exception e) {
-            log.error("图片预览失败", e);
-            try {
-                response.sendError(500, "预览失败: " + e.getMessage());
-            } catch (Exception ex) {
-                log.error("发送错误响应失败", ex);
-            }
+            log.error("文件预览失败", e);
+            return ResponseEntity.status(500).build();
         }
     }
 
@@ -232,6 +204,77 @@ public class ImagePreviewController {
         }
 
         return false;
+    }
+
+    /**
+     * 检查是否为音频文件
+     */
+    private boolean isAudioFile(String contentType, String filename) {
+        if (contentType != null && contentType.startsWith("audio/")) {
+            return true;
+        }
+
+        if (filename != null) {
+            String lower = filename.toLowerCase();
+            return lower.endsWith(".mp3") || lower.endsWith(".wav") ||
+                    lower.endsWith(".ogg") || lower.endsWith(".flac") ||
+                    lower.endsWith(".aac") || lower.endsWith(".m4a") ||
+                    lower.endsWith(".wma");
+        }
+
+        return false;
+    }
+
+    /**
+     * 检查是否为支持预览的文件类型
+     */
+    private boolean isPreviewableFile(String contentType, String filename) {
+        return isImageFile(contentType, filename) || isAudioFile(contentType, filename);
+    }
+
+    /**
+     * 获取文件Content-Type
+     */
+    private String getFileContentType(String filename, String originalType) {
+        if (originalType != null && (originalType.startsWith("image/") || originalType.startsWith("audio/"))) {
+            return originalType;
+        }
+
+        if (filename != null) {
+            String lower = filename.toLowerCase();
+            // 图片类型
+            if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+                return "image/jpeg";
+            } else if (lower.endsWith(".png")) {
+                return "image/png";
+            } else if (lower.endsWith(".gif")) {
+                return "image/gif";
+            } else if (lower.endsWith(".bmp")) {
+                return "image/bmp";
+            } else if (lower.endsWith(".webp")) {
+                return "image/webp";
+            } else if (lower.endsWith(".svg")) {
+                return "image/svg+xml";
+            }
+            // 音频类型
+            else if (lower.endsWith(".mp3")) {
+                return "audio/mpeg";
+            } else if (lower.endsWith(".wav")) {
+                return "audio/wav";
+            } else if (lower.endsWith(".ogg")) {
+                return "audio/ogg";
+            } else if (lower.endsWith(".flac")) {
+                return "audio/flac";
+            } else if (lower.endsWith(".aac")) {
+                return "audio/aac";
+            } else if (lower.endsWith(".m4a")) {
+                return "audio/mp4";
+            } else if (lower.endsWith(".wma")) {
+                return "audio/x-ms-wma";
+            }
+        }
+
+        return "application/octet-stream";
     }
 
     /**
