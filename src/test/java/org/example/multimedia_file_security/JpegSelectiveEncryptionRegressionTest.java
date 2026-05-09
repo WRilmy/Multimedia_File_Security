@@ -35,7 +35,7 @@ public class JpegSelectiveEncryptionRegressionTest {
 
         EncryptionAttackTest attackTest = new EncryptionAttackTest();
         EncryptionAttackTest.TestReport report = attackTest.runFullTestSuite(
-                originalImage, encryptedPreview, originalData, encryptedData, "SELECTIVE", "regression.jpg");
+                originalImage, encryptedPreview, originalData, encryptedData, "SELECTIVE", "regression.jpg", "IMAGE");
 
         assertEquals(0, report.getFailedTests(), attackTest.generateTestReport(report));
     }

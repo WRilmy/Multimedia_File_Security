@@ -40,9 +40,9 @@ public class PngKeyStreamComparisonTest {
 
         EncryptionAttackTest attackTest = new EncryptionAttackTest();
         EncryptionAttackTest.TestReport sm4CtrReport = attackTest.runFullTestSuite(
-                originalImage, sm4CtrImage, originalData, sm4CtrEncrypted, "SELECTIVE", "png-sm4-ctr.png");
+                originalImage, sm4CtrImage, originalData, sm4CtrEncrypted, "SELECTIVE", "png-sm4-ctr.png", "IMAGE");
         EncryptionAttackTest.TestReport chenReport = attackTest.runFullTestSuite(
-                originalImage, chenImage, originalData, chenEncrypted, "SELECTIVE", "png-hyperchaotic-chen.png");
+                originalImage, chenImage, originalData, chenEncrypted, "SELECTIVE", "png-hyperchaotic-chen.png", "IMAGE");
 
         System.out.println("===== PNG SM4-CTR KEYSTREAM REPORT =====");
         System.out.println(attackTest.generateTestReport(sm4CtrReport));

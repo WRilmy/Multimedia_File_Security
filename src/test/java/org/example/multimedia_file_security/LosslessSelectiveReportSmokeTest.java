@@ -31,7 +31,7 @@ public class LosslessSelectiveReportSmokeTest {
 
         EncryptionAttackTest attackTest = new EncryptionAttackTest();
         EncryptionAttackTest.TestReport report = attackTest.runFullTestSuite(
-                originalImage, encryptedImage, originalData, encryptedData, "SELECTIVE", "synthetic." + format);
+                originalImage, encryptedImage, originalData, encryptedData, "SELECTIVE", "synthetic." + format, "IMAGE");
 
         System.out.println("===== " + format.toUpperCase() + " =====");
         System.out.println(attackTest.generateTestReport(report));
