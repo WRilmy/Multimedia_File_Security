@@ -29,12 +29,12 @@ public class SelectiveEncryptionComparisonTest {
 
         EncryptionAttackTest attackTest = new EncryptionAttackTest();
         EncryptionAttackTest.TestReport currentReport = attackTest.runFullTestSuite(
-                originalImage, currentEncryptedImage, originalData, currentEncrypted, "SELECTIVE", "synthetic.jpg");
+                originalImage, currentEncryptedImage, originalData, currentEncrypted, "SELECTIVE", "synthetic.jpg", "IMAGE");
 
         byte[] hyperchaoticEncrypted = hyperchaoticSelectiveEncryptJpeg(originalData);
         BufferedImage hyperchaoticEncryptedImage = ImageIO.read(new ByteArrayInputStream(hyperchaoticEncrypted));
         EncryptionAttackTest.TestReport hyperchaoticReport = attackTest.runFullTestSuite(
-                originalImage, hyperchaoticEncryptedImage, originalData, hyperchaoticEncrypted, "SELECTIVE", "synthetic.jpg");
+                originalImage, hyperchaoticEncryptedImage, originalData, hyperchaoticEncrypted, "SELECTIVE", "synthetic.jpg", "IMAGE");
 
         System.out.println("===== CURRENT SELECTIVE REPORT =====");
         System.out.println(attackTest.generateTestReport(currentReport));
