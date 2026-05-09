@@ -5,6 +5,9 @@ import java.nio.ByteOrder;
 import java.security.MessageDigest;
 import java.util.Arrays;
 
+import static org.example.multimedia_file_security.utils.Sm4EncryptionUtil.fullEncrypt;
+import static org.example.multimedia_file_security.utils.Sm4EncryptionUtil.fullDecrypt;
+
 /**
  * 基于四维超混沌 Chen 系统的密钥流工具。
  * 该工具不接入现有上传下载链路，只提供独立的密钥流生成和 XOR 加解密能力，便于单独测试效果。
@@ -68,6 +71,20 @@ public final class HyperchaoticChenUtil {
                     0.001,
                     4000,
                     3
+            );
+        }
+
+        /**
+         * 高李雅普诺夫指数配置
+         * 优化参数以获得更高的混沌特性和李雅普诺夫指数
+         */
+        public static ChenKeyStreamConfig highLyapunovConfig() {
+            return new ChenKeyStreamConfig(
+                    38.0, 2.8, 14.0, 8.0, 0.6,  // 调整主要参数以增强混沌
+                    0.1234, 0.5678, 0.9012, 0.3456,  // 更精细的初始值
+                    0.0008,  // 更小的步长提高精度
+                    5000,    // 增加预热迭代次数
+                    2        // 减小采样步长以获取更多状态点
             );
         }
 
@@ -206,6 +223,91 @@ public final class HyperchaoticChenUtil {
     }
 
     /**
+     * 混合加密：先混沌加密，再SM4加密
+     * 加密流程：原始数据 -> 超混沌XOR加密 -> SM4-XOR加密 -> 密文
+     */
+    public static byte[] hybridEncrypt(byte[] plainData, ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
+        if (plainData == null) {
+            throw new IllegalArgumentException("plainData must not be null");
+        }
+        try {
+            byte[] chaosEncrypted = xorWithKeyStream(plainData, chenConfig);
+            return fullEncrypt(chaosEncrypted, sm4KeyBase64);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to hybrid encrypt", e);
+        }
+    }
+
+    /**
+     * 混合解密：先SM4解密，再混沌解密
+     * 解密流程：密文 -> SM4-XOR解密 -> 超混沌XOR解密 -> 原始数据
+     */
+    public static byte[] hybridDecrypt(byte[] encryptedData, ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
+        if (encryptedData == null) {
+            throw new IllegalArgumentException("encryptedData must not be null");
+        }
+        try {
+            byte[] chaosDecrypted = fullDecrypt(encryptedData, sm4KeyBase64);
+            return xorWithKeyStream(chaosDecrypted, chenConfig);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to hybrid decrypt", e);
+        }
+    }
+
+    /**
+     * 混合加密（仅内容区）：先混沌加密内容区，再SM4加密
+     * 保留文件头，仅对内容区进行混合加密
+     */
+    public static byte[] hybridEncryptPayload(byte[] imageData, String filename, 
+                                              ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
+        if (imageData == null) {
+            throw new IllegalArgumentException("imageData must not be null");
+        }
+        try {
+            int headerSize = detectHeaderSize(filename, imageData);
+            byte[] payload = Arrays.copyOfRange(imageData, headerSize, imageData.length);
+            byte[] chaosEncrypted = xorWithKeyStream(payload, chenConfig);
+            byte[] hybridEncrypted = fullEncrypt(chaosEncrypted, sm4KeyBase64);
+            
+            // 创建足够大的新数组来容纳文件头和加密后的内容
+            byte[] result = new byte[headerSize + hybridEncrypted.length];
+            // 复制文件头
+            System.arraycopy(imageData, 0, result, 0, headerSize);
+            // 复制加密后的内容
+            System.arraycopy(hybridEncrypted, 0, result, headerSize, hybridEncrypted.length);
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to hybrid encrypt payload", e);
+        }
+    }
+
+    /**
+     * 混合解密（仅内容区）：先SM4解密内容区，再混沌解密
+     */
+    public static byte[] hybridDecryptPayload(byte[] encryptedImageData, String filename,
+                                              ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
+        if (encryptedImageData == null) {
+            throw new IllegalArgumentException("encryptedImageData must not be null");
+        }
+        try {
+            int headerSize = detectHeaderSize(filename, encryptedImageData);
+            byte[] encryptedPayload = Arrays.copyOfRange(encryptedImageData, headerSize, encryptedImageData.length);
+            byte[] chaosDecrypted = fullDecrypt(encryptedPayload, sm4KeyBase64);
+            byte[] hybridDecrypted = xorWithKeyStream(chaosDecrypted, chenConfig);
+            
+            // 创建足够大的新数组来容纳文件头和解密后的内容
+            byte[] result = new byte[headerSize + hybridDecrypted.length];
+            // 复制文件头
+            System.arraycopy(encryptedImageData, 0, result, 0, headerSize);
+            // 复制解密后的内容
+            System.arraycopy(hybridDecrypted, 0, result, headerSize, hybridDecrypted.length);
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to hybrid decrypt payload", e);
+        }
+    }
+
+    /**
      * 允许外部直接指定保留头长度。
      */
     public static byte[] xorWithReservedHeader(byte[] data, int headerSize, ChenKeyStreamConfig config) {
@@ -231,7 +333,7 @@ public final class HyperchaoticChenUtil {
         return xorWithReservedHeader(imageData, headerSize, config);
     }
 
-    private static byte[] xorWithKeyStream(byte[] input, ChenKeyStreamConfig config) {
+    public static byte[] xorWithKeyStream(byte[] input, ChenKeyStreamConfig config) {
         if (input == null) {
             throw new IllegalArgumentException("input must not be null");
         }
@@ -292,6 +394,134 @@ public final class HyperchaoticChenUtil {
                 state.z + delta[2] * factor,
                 state.w + delta[3] * factor
         );
+    }
+
+    /**
+     * 计算超混沌 Chen 系统的雅可比矩阵。
+     * 雅可比矩阵用于线性化扰动方程，是计算李雅普诺夫指数的基础。
+     */
+    private static double[][] jacobian(State state, ChenKeyStreamConfig config) {
+        double a = config.getA();
+        double b = config.getB();
+        double c = config.getC();
+        double d = config.getD();
+        double r = config.getR();
+        
+        return new double[][]{  
+            {-a, a, 0, 1},            // dx/dx, dx/dy, dx/dz, dx/dw
+            {d - state.z, c, -state.x, 0},  // dy/dx, dy/dy, dy/dz, dy/dw
+            {state.y, state.x, -b, 0},      // dz/dx, dz/dy, dz/dz, dz/dw
+            {state.z, 0, state.x, r}        // dw/dx, dw/dy, dw/dz, dw/dw
+        };
+    }
+
+    /**
+     * 使用四阶龙格-库塔方法积分扰动向量的线性化方程。
+     * 线性化方程：d(δv)/dt = J(t) · δv，其中 J(t) 是雅可比矩阵。
+     */
+    private static double[] integratePerturbation(double[] perturbation, State state, 
+                                                ChenKeyStreamConfig config, double h) {
+        double[][] J = jacobian(state, config);
+        
+        // k1 = f(y)
+        double[] k1 = multiplyJacobian(J, perturbation);
+        
+        // k2 = f(y + h/2 * k1)
+        double[] y2 = addVectors(perturbation, scaleVector(k1, h / 2.0));
+        double[] k2 = multiplyJacobian(J, y2);
+        
+        // k3 = f(y + h/2 * k2)
+        double[] y3 = addVectors(perturbation, scaleVector(k2, h / 2.0));
+        double[] k3 = multiplyJacobian(J, y3);
+        
+        // k4 = f(y + h * k3)
+        double[] y4 = addVectors(perturbation, scaleVector(k3, h));
+        double[] k4 = multiplyJacobian(J, y4);
+        
+        // 组合结果：y = y + h/6 * (k1 + 2*k2 + 2*k3 + k4)
+        double[] result = new double[4];
+        for (int i = 0; i < 4; i++) {
+            result[i] = perturbation[i] + h / 6.0 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]);
+        }
+        return result;
+    }
+
+    /**
+     * 雅可比矩阵与向量的乘法。
+     */
+    private static double[] multiplyJacobian(double[][] J, double[] v) {
+        double[] result = new double[4];
+        for (int i = 0; i < 4; i++) {
+            result[i] = J[i][0] * v[0] + J[i][1] * v[1] + J[i][2] * v[2] + J[i][3] * v[3];
+        }
+        return result;
+    }
+
+    /**
+     * 向量加法。
+     */
+    private static double[] addVectors(double[] a, double[] b) {
+        double[] result = new double[4];
+        for (int i = 0; i < 4; i++) {
+            result[i] = a[i] + b[i];
+        }
+        return result;
+    }
+
+    /**
+     * 向量缩放。
+     */
+    private static double[] scaleVector(double[] v, double factor) {
+        double[] result = new double[4];
+        for (int i = 0; i < 4; i++) {
+            result[i] = v[i] * factor;
+        }
+        return result;
+    }
+
+    /**
+     * Gram-Schmidt 正交化。
+     * 对扰动向量组进行正交化，避免数值误差累积。
+     */
+    private static double[] gramSchmidtWithNorms(double[][] vectors) {
+        double[] norms = new double[4];
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < i; j++) {
+                double dot = dotProduct(vectors[i], vectors[j]);
+                for (int k = 0; k < 4; k++) {
+                    vectors[i][k] -= dot * vectors[j][k];
+                }
+            }
+            norms[i] = vectorNorm(vectors[i]);
+            if (norms[i] > 1e-10) {
+                for (int k = 0; k < 4; k++) {
+                    vectors[i][k] /= norms[i];
+                }
+            }
+        }
+        return norms;
+    }
+
+    /**
+     * 计算向量点积。
+     */
+    private static double dotProduct(double[] a, double[] b) {
+        double result = 0;
+        for (int i = 0; i < 4; i++) {
+            result += a[i] * b[i];
+        }
+        return result;
+    }
+
+    /**
+     * 计算向量范数。
+     */
+    private static double vectorNorm(double[] v) {
+        double sum = 0;
+        for (double x : v) {
+            sum += x * x;
+        }
+        return Math.sqrt(sum);
     }
 
     private static int detectHeaderSize(String filename, byte[] data) {
@@ -373,5 +603,120 @@ public final class HyperchaoticChenUtil {
 
     public static int getDigestBlockSize() {
         return DIGEST_BLOCK_SIZE;
+    }
+
+    /**
+     * 计算超混沌 Chen 系统的李雅普诺夫指数。
+     * 使用雅可比矩阵法，通过跟踪扰动向量的指数级分离速率来计算。
+     * 
+     * @param config 系统配置
+     * @param warmupSteps 预热步数（让系统进入吸引子）
+     * @param integrationSteps 积分步数（用于计算指数）
+     * @param orthogonalizationInterval 正交化间隔（避免数值误差累积）
+     * @return 李雅普诺夫指数数组（按从大到小排序）
+     */
+    public static double[] calculateLyapunovExponents(ChenKeyStreamConfig config, 
+                                                    int warmupSteps, 
+                                                    int integrationSteps, 
+                                                    int orthogonalizationInterval) {
+        if (warmupSteps < 0) {
+            throw new IllegalArgumentException("warmupSteps must be >= 0");
+        }
+        if (integrationSteps <= 0) {
+            throw new IllegalArgumentException("integrationSteps must be > 0");
+        }
+        if (orthogonalizationInterval <= 0) {
+            throw new IllegalArgumentException("orthogonalizationInterval must be > 0");
+        }
+
+        double h = config.getStepSize();
+        State state = new State(config.getX0(), config.getY0(), config.getZ0(), config.getW0());
+        
+        // 1. 预热：让系统进入吸引子
+        for (int i = 0; i < warmupSteps; i++) {
+            state = rk4Next(state, config);
+        }
+
+        // 2. 初始化扰动向量（标准基向量）
+        double[][] perturbations = new double[4][4];
+        for (int i = 0; i < 4; i++) {
+            perturbations[i][i] = 1.0;
+        }
+
+        // 3. 初始化李雅普诺夫指数累积器
+        double[] lyapunovExponents = new double[4];
+        int stepsSinceOrthogonalization = 0;
+
+        // 4. 积分并累积指数
+        for (int i = 0; i < integrationSteps; i++) {
+            double[][] J = jacobian(state, config);
+            for (int j = 0; j < 4; j++) {
+                double[] newPerturbation = new double[4];
+                for (int k = 0; k < 4; k++) {
+                    for (int l = 0; l < 4; l++) {
+                        newPerturbation[k] += J[k][l] * perturbations[j][l];
+                    }
+                }
+                for (int k = 0; k < 4; k++) {
+                    perturbations[j][k] += h * newPerturbation[k];
+                }
+            }
+
+            state = rk4Next(state, config);
+
+            stepsSinceOrthogonalization++;
+
+            if (stepsSinceOrthogonalization >= orthogonalizationInterval) {
+                double[] norms = gramSchmidtWithNorms(perturbations);
+                for (int j = 0; j < 4; j++) {
+                    if (norms[j] > 1e-10) {
+                        lyapunovExponents[j] += Math.log(norms[j]);
+                    }
+                }
+                stepsSinceOrthogonalization = 0;
+            }
+        }
+
+        // 5. 时间平均
+        double totalTime = integrationSteps * h;
+        for (int i = 0; i < 4; i++) {
+            lyapunovExponents[i] /= totalTime;
+        }
+
+        // 6. 按从大到小排序
+        Arrays.sort(lyapunovExponents);
+        reverseArray(lyapunovExponents);
+
+        return lyapunovExponents;
+    }
+
+    /**
+     * 反转数组。
+     */
+    private static void reverseArray(double[] array) {
+        int left = 0;
+        int right = array.length - 1;
+        while (left < right) {
+            double temp = array[left];
+            array[left] = array[right];
+            array[right] = temp;
+            left++;
+            right--;
+        }
+    }
+
+    /**
+     * 计算默认配置下的李雅普诺夫指数。
+     * 提供合理的默认参数，方便快速评估系统混沌特性。
+     * 
+     * @return 李雅普诺夫指数数组（按从大到小排序）
+     */
+    public static double[] calculateLyapunovExponents() {
+        return calculateLyapunovExponents(
+                ChenKeyStreamConfig.defaultConfig(),
+                10000,  // 预热步数
+                50000,  // 积分步数
+                100     // 正交化间隔
+        );
     }
 }
