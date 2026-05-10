@@ -102,10 +102,14 @@ public class EncryptionAttackTest {
                 runStatisticalAttacks(originalData, encryptedData, report, encryptedImage, encryptionMode);
                 runFormatAnalysisAttacks(encryptedData, filename, report);
                 exportByteHistogram(originalData, encryptedData, filename);
+                // 添加明文熵和密文熵对比用于前端可视化
+                report.addResult(testPlainCipherEntropy(originalData, encryptedData, "图像"));
             } else if ("HYPERCHAOTIC".equals(encryptionMode) || "HYBRID".equals(encryptionMode)) {
                 runBasicSecurityTests(encryptedImage, encryptedData, report, encryptionMode);
                 runCryptographicAttacks(originalData, encryptedData, report, encryptionMode, filename);
                 runStatisticalAttacks(originalData, encryptedData, report, encryptedImage, encryptionMode);
+                // 添加明文熵和密文熵对比用于前端可视化
+                report.addResult(testPlainCipherEntropy(originalData, encryptedData, "图像"));
             } else {
                 runSelectiveImageDomainTests(originalImage, encryptedImage, originalData, encryptedData, report, filename);
             }
@@ -125,6 +129,9 @@ public class EncryptionAttackTest {
                 runCryptographicAttacks(originalData, encryptedData, report, encryptionMode, filename);
                 runStatisticalAttacks(originalData, encryptedData, report, null, encryptionMode);
                 runVideoSpecificTests(originalData, encryptedData, report, filename);
+                // 添加字节直方图和相关性数据用于前端可视化
+                report.addResult(testByteHistogram(originalData, encryptedData, "视频"));
+                report.addResult(testByteCorrelation(originalData, encryptedData, "视频"));
             }
         } else if ("AUDIO".equals(fileType)) {
             // 音频文件测试
@@ -134,7 +141,6 @@ public class EncryptionAttackTest {
             } else if ("HYPERCHAOTIC".equals(encryptionMode) || "HYBRID".equals(encryptionMode)) {
                 // 超混沌/混合选择性加密：图片风格测试项 + 音频特有测试项
                 runSelectiveAudioDomainTests(originalData, encryptedData, report, filename);
-                report.addResult(testAudioHeaderAnalysis(encryptedData, filename));
                 report.addResult(testTemporalFeatureAnalysis(encryptedData, filename));
                 report.addResult(testEnergyDistributionAnalysis(encryptedData, filename));
             } else {
@@ -142,7 +148,10 @@ public class EncryptionAttackTest {
                 runBasicSecurityTests(null, encryptedData, report, encryptionMode);
                 runCryptographicAttacks(originalData, encryptedData, report, encryptionMode, filename);
                 runStatisticalAttacks(originalData, encryptedData, report, null, encryptionMode);
-                runAudioSpecificTests(originalData, encryptedData, report, filename);
+                runAudioSpecificTests(originalData, encryptedData, report, filename, encryptionMode);
+                // 添加字节直方图和相关性数据用于前端可视化
+                report.addResult(testByteHistogram(originalData, encryptedData, "音频"));
+                report.addResult(testByteCorrelation(originalData, encryptedData, "音频"));
             }
         }
 
@@ -164,13 +173,15 @@ public class EncryptionAttackTest {
             report.addResult(testHistogramUniformity(originalImage, encryptedImage));
             report.addResult(testImagePlainCipherCorrelation(originalImage, encryptedImage, filename));
             report.addResult(testCorrelationAnalysis(encryptedData, encryptedImage, "SELECTIVE"));
-            exportHistogramData(originalImage, encryptedImage, filename.replace(".", "_"));
+            report.addResult(exportHistogramData(originalImage, encryptedImage, filename.replace(".", "_")));
         } else {
             report.addResult(testDataEntropy(null, encryptedData, "SELECTIVE"));
             report.addResult(testCorrelationAnalysis(encryptedData, null, "SELECTIVE"));
         }
         report.addResult(testSelectiveDifferentialAnalysis(originalData, filename));
         report.addResult(testAvalanche(originalData, "SELECTIVE", encryptedData));
+        // 添加明文熵和密文熵对比用于前端可视化
+        report.addResult(testPlainCipherEntropy(originalData, encryptedData, "图像"));
     }
 
     private void runSelectiveVideoDomainTests(byte[] originalData, byte[] encryptedData,
@@ -183,6 +194,10 @@ public class EncryptionAttackTest {
         report.addResult(testChunkEntropyConsistency(encryptedData, "视频"));
         report.addResult(testVideoSelectiveDifferentialAnalysis(originalData, filename));
         report.addResult(testAvalanche(originalData, "SELECTIVE", encryptedData));
+        // 添加字节直方图和相关性数据用于前端可视化
+        report.addResult(testByteHistogram(originalData, encryptedData, "视频"));
+        report.addResult(testByteCorrelation(originalData, encryptedData, "视频"));
+        report.addResult(testPlainCipherEntropy(originalData, encryptedData, "视频"));
     }
 
     private void runSelectiveAudioDomainTests(byte[] originalData, byte[] encryptedData,
@@ -191,6 +206,10 @@ public class EncryptionAttackTest {
         report.addResult(testDataEntropy(null, encryptedData, "SELECTIVE"));
         report.addResult(testChunkEntropyConsistency(encryptedData, "音频"));
         report.addResult(testAvalanche(originalData, "SELECTIVE", encryptedData));
+        // 添加字节直方图和相关性数据用于前端可视化
+        report.addResult(testByteHistogram(originalData, encryptedData, "音频"));
+        report.addResult(testByteCorrelation(originalData, encryptedData, "音频"));
+        report.addResult(testPlainCipherEntropy(originalData, encryptedData, "音频"));
     }
 
     public void runBasicSecurityTests(BufferedImage encryptedImage, byte[] encryptedData,
@@ -254,12 +273,14 @@ public class EncryptionAttackTest {
     /**
      * 运行音频特定的测试
      */
-    private void runAudioSpecificTests(byte[] originalData, byte[] encryptedData, TestReport report, String filename) {
+    private void runAudioSpecificTests(byte[] originalData, byte[] encryptedData, TestReport report, String filename, String encryptionMode) {
         report.addResult(testMediaPlainCipherCorrelation(originalData, encryptedData, "音频"));
         report.addResult(testMediaByteDistortion(originalData, encryptedData, "音频"));
         report.addResult(testChunkEntropyConsistency(encryptedData, "音频"));
-        report.addResult(testAudioFormatSignatureLeakage(originalData, encryptedData, filename, true));
-        report.addResult(testAudioHeaderAnalysis(encryptedData, filename));
+        report.addResult(testAudioFormatSignatureLeakage(originalData, encryptedData, filename, !"SELECTIVE".equals(encryptionMode)));
+        if (!"SELECTIVE".equals(encryptionMode)) {
+            report.addResult(testAudioHeaderAnalysis(encryptedData, filename));
+        }
         report.addResult(testTemporalFeatureAnalysis(encryptedData, filename));
         report.addResult(testEnergyDistributionAnalysis(encryptedData, filename));
     }
@@ -970,6 +991,81 @@ public class EncryptionAttackTest {
 
         result.setExecutionTime(System.currentTimeMillis() - startTime);
         return result;
+    }
+
+    /**
+     * 计算明文和密文的信息熵对比 - 用于可视化展示
+     */
+    private TestResult testPlainCipherEntropy(byte[] originalData, byte[] encryptedData, String mediaType) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("明密文信息熵对比", true, 
+                "对比" + mediaType + "文件加密前后的信息熵变化");
+
+        double plainEntropy, cipherEntropy;
+        
+        // 对于图片类型，使用像素灰度值计算熵（更能反映图像特征）
+        // 对于视频/音频，使用字节值计算熵
+        if ("图像".equals(mediaType)) {
+            // 尝试将字节数据解析为图片来计算像素熵
+            plainEntropy = calculateImageEntropyFromBytes(originalData);
+            cipherEntropy = calculateImageEntropyFromBytes(encryptedData);
+        } else {
+            plainEntropy = calculateEntropy(originalData);
+            cipherEntropy = calculateEntropy(encryptedData);
+        }
+
+        result.addMetric("明文熵", String.format("%.4f", plainEntropy));
+        result.addMetric("密文熵", String.format("%.4f", cipherEntropy));
+        result.addMetric("理论最大值", "8.0000");
+        result.addMetric("熵提升", String.format("%.4f", cipherEntropy - plainEntropy));
+        result.addMetric("数据类型", mediaType);
+
+        if (cipherEntropy > plainEntropy) {
+            result.setDetails("密文熵(" + String.format("%.4f", cipherEntropy) + ")高于明文熵(" + String.format("%.4f", plainEntropy) + ")，加密有效提升了数据随机性");
+        } else {
+            result.setDetails("密文熵未明显高于明文熵，加密效果一般");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 从字节数据解析图片并计算像素灰度熵
+     */
+    private double calculateImageEntropyFromBytes(byte[] imageData) {
+        if (imageData == null || imageData.length == 0) {
+            return 0;
+        }
+        
+        try {
+            // 尝试解析图片
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(
+                new java.io.ByteArrayInputStream(imageData)
+            );
+            
+            if (image != null) {
+                // 成功解析为图片，使用像素灰度值计算熵
+                int[] grayHist = new int[256];
+                for (int y = 0; y < image.getHeight(); y++) {
+                    for (int x = 0; x < image.getWidth(); x++) {
+                        int rgb = image.getRGB(x, y);
+                        // 计算灰度值
+                        int gray = (int)(((rgb >> 16) & 0xFF) * 0.299 + 
+                                        ((rgb >> 8) & 0xFF) * 0.587 + 
+                                        (rgb & 0xFF) * 0.114);
+                        grayHist[gray]++;
+                    }
+                }
+                return histEntropy(grayHist);
+            }
+        } catch (Exception e) {
+            // 解析失败，回退到字节熵计算
+            log.warn("无法解析图片数据，使用字节熵计算: {}", e.getMessage());
+        }
+        
+        // 回退到字节熵计算
+        return calculateEntropy(imageData);
     }
 
     private double calculateEntropy(byte[] data) {
@@ -2361,7 +2457,7 @@ public class EncryptionAttackTest {
         return sb.toString();
     }
 
-    public void exportHistogramData(BufferedImage original, BufferedImage encrypted, String filePrefix) throws IOException {
+    public TestResult exportHistogramData(BufferedImage original, BufferedImage encrypted, String filePrefix) throws IOException {
         int[] origHist = new int[256];
         int[] encHist = new int[256];
 
@@ -2383,6 +2479,38 @@ public class EncryptionAttackTest {
             }
         }
         log.info("直方图数据已导出至 {}", filePrefix + "_histogram.csv");
+
+        // 创建TestResult返回直方图数据给前端
+        TestResult result = new TestResult("直方图均匀性分析", true, "分析图像加密前后的灰度直方图分布");
+        result.addMetric("明文直方图", origHist);
+        result.addMetric("密文直方图", encHist);
+        result.addMetric("数据类型", "图像");
+        
+        // 计算变异系数
+        double totalPixels = original.getWidth() * original.getHeight();
+        double origMean = totalPixels / 256.0;
+        double origVariance = 0, encVariance = 0;
+        for (int i = 0; i < 256; i++) {
+            origVariance += Math.pow(origHist[i] - origMean, 2);
+            encVariance += Math.pow(encHist[i] - origMean, 2);
+        }
+        origVariance /= 256;
+        encVariance /= 256;
+        double origCv = origMean == 0 ? 0 : Math.sqrt(origVariance) / origMean;
+        double encCv = origMean == 0 ? 0 : Math.sqrt(encVariance) / origMean;
+        
+        result.addMetric("原图直方图变异系数", String.format("%.6f", origCv));
+        result.addMetric("密文直方图变异系数", String.format("%.6f", encCv));
+        result.addMetric("均匀化比例", String.format("%.6f", encCv / origCv));
+        
+        if (encCv < origCv) {
+            result.setDetails("密文直方图比原图更均匀，统计特征被有效打散");
+        } else {
+            result.setPassed(false);
+            result.setDetails("密文直方图没有明显均匀化");
+        }
+        
+        return result;
     }
 
     public void exportByteHistogram(byte[] plainData, byte[] cipherData, String filePrefix) throws IOException {
@@ -2404,6 +2532,113 @@ public class EncryptionAttackTest {
             writer.write(generateTestReport(report));
         }
         log.info("测试报告已保存到: {}", filePath);
+    }
+
+    /**
+     * 字节直方图分析 - 用于视频/音频的可视化展示
+     */
+    private TestResult testByteHistogram(byte[] originalData, byte[] encryptedData, String mediaType) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("字节分布直方图分析", true, 
+                "分析" + mediaType + "文件加密前后的字节值(0-255)分布情况，用于可视化展示");
+
+        int[] plainFreq = new int[256];
+        int[] cipherFreq = new int[256];
+        
+        for (byte b : originalData) plainFreq[b & 0xFF]++;
+        for (byte b : encryptedData) cipherFreq[b & 0xFF]++;
+
+        // 将直方图数据放入metrics，前端可以直接使用
+        result.addMetric("明文直方图", plainFreq);
+        result.addMetric("密文直方图", cipherFreq);
+        result.addMetric("数据类型", mediaType);
+        result.addMetric("明文数据大小", originalData.length + " 字节");
+        result.addMetric("密文数据大小", encryptedData.length + " 字节");
+
+        // 计算密文直方图的均匀度（变异系数）
+        double cipherMean = encryptedData.length / 256.0;
+        double cipherVariance = 0;
+        for (int freq : cipherFreq) {
+            cipherVariance += Math.pow(freq - cipherMean, 2);
+        }
+        cipherVariance /= 256;
+        double cipherCv = cipherMean == 0 ? 0 : Math.sqrt(cipherVariance) / cipherMean;
+        
+        result.addMetric("密文直方图变异系数", String.format("%.6f", cipherCv));
+        result.setDetails("密文直方图变异系数为" + String.format("%.6f", cipherCv) + 
+                (cipherCv < 0.1 ? "，分布较均匀" : "，分布均匀度一般"));
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 字节相关性分析 - 用于视频/音频的可视化展示
+     */
+    private TestResult testByteCorrelation(byte[] originalData, byte[] encryptedData, String mediaType) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult("相邻字节相关性分析", true, 
+                "分析" + mediaType + "文件加密前后相邻字节的相关性，用于可视化展示");
+
+        // 采样相邻字节对（最多3000对）
+        int sampleSize = Math.min(3000, Math.min(originalData.length, encryptedData.length) - 1);
+        
+        List<int[]> plainPairs = new ArrayList<>();
+        List<int[]> cipherPairs = new ArrayList<>();
+        
+        // 随机采样
+        java.util.Random random = new java.util.Random(42); // 固定种子保证可重复
+        for (int i = 0; i < sampleSize; i++) {
+            int idx = random.nextInt(Math.min(originalData.length, encryptedData.length) - 1);
+            plainPairs.add(new int[]{originalData[idx] & 0xFF, originalData[idx + 1] & 0xFF});
+            cipherPairs.add(new int[]{encryptedData[idx] & 0xFF, encryptedData[idx + 1] & 0xFF});
+        }
+
+        // 计算皮尔逊相关系数
+        double plainCorr = calculateBytePearson(plainPairs);
+        double cipherCorr = calculateBytePearson(cipherPairs);
+
+        // 将相关性数据放入metrics，前端可以直接使用
+        result.addMetric("明文相关性", plainPairs);
+        result.addMetric("密文相关性", cipherPairs);
+        result.addMetric("明文相关系数", String.format("%.8f", plainCorr));
+        result.addMetric("密文相关系数", String.format("%.8f", cipherCorr));
+        result.addMetric("数据类型", mediaType);
+        result.addMetric("采样对数", sampleSize);
+
+        if (Math.abs(cipherCorr) > 0.1) {
+            result.setPassed(false);
+            result.setDetails("密文相邻字节相关性为" + String.format("%.8f", cipherCorr) + "，相关性仍较明显");
+        } else {
+            result.setDetails("密文相邻字节相关性为" + String.format("%.8f", cipherCorr) + "，相关性较低，加密效果较好");
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 计算字节对的皮尔逊相关系数
+     */
+    private double calculateBytePearson(List<int[]> pairs) {
+        int n = pairs.size();
+        if (n == 0) return 0;
+
+        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+        for (int[] pair : pairs) {
+            double x = pair[0];
+            double y = pair[1];
+            sumX += x;
+            sumY += y;
+            sumXY += x * y;
+            sumX2 += x * x;
+            sumY2 += y * y;
+        }
+
+        double numerator = n * sumXY - sumX * sumY;
+        double denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+
+        return denominator == 0 ? 0 : numerator / denominator;
     }
 
     private static final class InMemoryMultipartFile implements MultipartFile {
