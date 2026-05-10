@@ -153,6 +153,46 @@ public class Mp3SelectiveEncryptionUtil {
     /**
      * 解析MP3帧头
      */
+    private static final int[][] BITRATES = {
+            {0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0},
+            {0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0},
+            {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0},
+            {0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0},
+            {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0},
+            {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0}
+    };
+
+    private static final int[][] SAMPLE_RATES = {
+            {44100, 48000, 32000, 0},
+            {22050, 24000, 16000, 0},
+            {11025, 12000, 8000, 0}
+    };
+
+    private static int getBitrate(int version, int layer, int bitrateIndex) {
+        int tableIndex;
+        if (version == 3) {
+            tableIndex = layer - 1;
+        } else {
+            tableIndex = layer == 1 ? 3 : (layer == 2 ? 4 : 5);
+        }
+        if (tableIndex < 0 || tableIndex >= BITRATES.length) return 0;
+        if (bitrateIndex < 0 || bitrateIndex >= BITRATES[tableIndex].length) return 0;
+        return BITRATES[tableIndex][bitrateIndex];
+    }
+
+    private static int getSampleRate(int version, int sampleRateIndex) {
+        int tableIndex;
+        if (version == 3) {
+            tableIndex = 0;
+        } else if (version == 2) {
+            tableIndex = 1;
+        } else {
+            tableIndex = 2;
+        }
+        if (sampleRateIndex < 0 || sampleRateIndex >= SAMPLE_RATES[tableIndex].length) return 0;
+        return SAMPLE_RATES[tableIndex][sampleRateIndex];
+    }
+
     private static Mp3FrameInfo parseFrameHeader(byte[] data, int pos) {
         if (pos + 4 > data.length) return null;
 
@@ -165,17 +205,16 @@ public class Mp3SelectiveEncryptionUtil {
         frame.setLayer((header >> 17) & 0x03);
         frame.setProtection((header >> 16) & 0x01);
 
-        // 比特率
+        if (frame.getVersion() == 1 || frame.getLayer() == 0) {
+            return null;
+        }
+
         int bitrateIndex = (header >> 12) & 0x0F;
-        int[] bitrates = {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0};
-        frame.setBitrate(bitrates[bitrateIndex]);
+        frame.setBitrate(getBitrate(frame.getVersion(), frame.getLayer(), bitrateIndex));
 
-        // 采样率
         int sampleRateIndex = (header >> 10) & 0x03;
-        int[] sampleRates = {44100, 48000, 32000, 0};
-        frame.setSampleRate(sampleRates[sampleRateIndex]);
+        frame.setSampleRate(getSampleRate(frame.getVersion(), sampleRateIndex));
 
-        // 跳过无效帧（比特率或采样率为0）
         if (frame.getBitrate() == 0 || frame.getSampleRate() == 0) {
             return null;
         }
@@ -188,17 +227,19 @@ public class Mp3SelectiveEncryptionUtil {
         frame.setOriginal((header >> 2) & 0x01);
         frame.setEmphasis(header & 0x03);
 
-        // 计算帧大小
-        int frameSize = 0;
-        if (frame.getLayer() == 1) {
+        int frameSize;
+        if (frame.getLayer() == 3) {
             frameSize = (12 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding()) * 4;
         } else {
-            frameSize = 144 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding();
+            if (frame.getVersion() == 3 || frame.getVersion() == 2) {
+                frameSize = 144 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding();
+            } else {
+                frameSize = 72 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding();
+            }
         }
         frame.setFrameSize(frameSize);
         frame.setStartPos(pos);
 
-        // 跳过无效帧大小
         if (frameSize <= 0) {
             return null;
         }
