@@ -6,7 +6,7 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # Windows 常用黑体
 # 或者 ['Microsoft YaHei']、['WenQuanYi Zen Hei']（Linux）
 plt.rcParams['axes.unicode_minus'] = False   # 解决负号显示异常
 
-df = pd.read_csv('2.1.01.bmp_byte_hist.csv')
+df = pd.read_csv('4.2.03 (3) (1) (1) (1).jpg_byte_hist.csv')
 x = df['ByteValue']
 plain = df['PlainCount']
 cipher = df['CipherCount']

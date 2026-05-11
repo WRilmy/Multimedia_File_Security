@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
-df = pd.read_csv('2_1_01_jpg_histogram.csv')
+df = pd.read_csv('4_1_05 (2)_png_histogram.csv')
 gray_levels = df['GrayLevel']
 original = df['OriginalCount']
 encrypted = df['EncryptedCount']
