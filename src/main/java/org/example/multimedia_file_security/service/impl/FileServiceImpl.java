@@ -379,7 +379,7 @@ public class FileServiceImpl implements FileService {
             throw new RuntimeException("文件不存在");
         }
 
-        // 验证用户权限（这里假设只有上传者可以下载）
+        // 验证用户权限（只有上传者可以下载）
         if (!fileRecord.getUserId().equals(userId)) {
             throw new SecurityException("无权下载此文件");
         }
