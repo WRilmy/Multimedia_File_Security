@@ -10,6 +10,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.security.Security;
 import java.util.Arrays;
@@ -151,7 +152,7 @@ public class Sm4EncryptionUtil {
     public static byte[] newFullEncrypt(byte[] fileData, String filename, String sm4Key) throws Exception {
         if (filename != null && isImageFile(filename.toLowerCase())) {
             // 图像文件：先改进版超混沌Chen XOR加密，再SM4全文件加密
-            HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.defaultConfig();
+            HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = deriveOptimizedChenConfigFromSm4Key(sm4Key);
             return HyperchaoticChenOptimizedUtil.hybridEncrypt(fileData, config, sm4Key);
         }
         // 非图像文件：保持原有SM4全文件加密
@@ -249,8 +250,7 @@ public class Sm4EncryptionUtil {
      * 音频文件选择性加密
      */
     private static byte[] selectiveAudioEncrypt(byte[] audioData, String filename, String sm4Key) throws Exception {
-        // 使用超混沌系统的默认配置
-        HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+        HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = deriveOptimizedChenConfigFromSm4Key(sm4Key);
 
         if (filename.endsWith(".wav")) {
             return WavSelectiveEncryptionUtil.selectiveEncryptWav(audioData, config);
@@ -425,7 +425,7 @@ public class Sm4EncryptionUtil {
      * 视频文件选择性加密
      */
     private static byte[] selectiveVideoEncrypt(byte[] videoData, String filename, String sm4Key) throws Exception {
-        HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+        HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = deriveOptimizedChenConfigFromSm4Key(sm4Key);
 
         if (filename.endsWith(".avi")) {
             return AviSelectiveEncryptionUtil.selectiveEncryptAvi(videoData, config);
@@ -483,13 +483,25 @@ public class Sm4EncryptionUtil {
     public static byte[] newFullDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
         if (filename != null && isImageFile(filename.toLowerCase())) {
             // 图像文件：先SM4解密，再改进版超混沌Chen XOR解密
-            HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.defaultConfig();
+            HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = deriveOptimizedChenConfigFromSm4Key(sm4Key);
             return HyperchaoticChenOptimizedUtil.hybridDecrypt(encryptedData, config, sm4Key);
         }
         // 非图像文件：保持原有SM4全文件解密
         return fullDecrypt(encryptedData, sm4Key, "CBC");
     }
 
+    /**
+     * 按指定模式解密全文件 SM4 密文。
+     * <p>
+     * 加密结果的格式为 IV 长度、IV 内容、真实密文。本方法先解析该包装格式，再调用 SM4 CBC 或 ECB 解密。
+     * </p>
+     *
+     * @param encryptedData 加密后的包装字节
+     * @param sm4Key Base64 编码的 SM4 密钥
+     * @param mode 解密模式，支持 CBC 或 ECB
+     * @return 解密后的原始文件字节
+     * @throws Exception 当密钥、填充或加密数据格式不正确时抛出
+     */
     public static byte[] fullDecrypt(byte[] encryptedData, String sm4Key, String mode) throws Exception {
         if (encryptedData == null || encryptedData.length == 0) {
             throw new IllegalArgumentException("加密数据不能为空");
@@ -539,9 +551,17 @@ public class Sm4EncryptionUtil {
         }
     }
 
+    /**
+     * 根据音频格式分派选择性解密逻辑。
+     *
+     * @param encryptedData 音频密文字节
+     * @param filename 原始文件名
+     * @param sm4Key Base64 编码的 SM4 密钥
+     * @return 解密后的音频字节
+     * @throws Exception 当格式解析或解密失败时抛出
+     */
     private static byte[] selectiveAudioDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
-        // 使用超混沌系统的默认配置
-        HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+        HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = deriveOptimizedChenConfigFromSm4Key(sm4Key);
 
         if (filename.endsWith(".wav")) {
             return WavSelectiveEncryptionUtil.decryptWav(encryptedData, config);
@@ -552,6 +572,15 @@ public class Sm4EncryptionUtil {
         }
     }
 
+    /**
+     * 根据图像格式分派选择性解密逻辑。
+     *
+     * @param encryptedData 图像密文字节
+     * @param filename 原始文件名
+     * @param sm4Key Base64 编码的 SM4 密钥
+     * @return 解密后的图像字节
+     * @throws Exception 当格式解析或解密失败时抛出
+     */
     private static byte[] selectiveImageDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
         if (filename.endsWith(".bmp")) {
             return selectiveDecryptBmpCTR(encryptedData, sm4Key);
@@ -564,8 +593,17 @@ public class Sm4EncryptionUtil {
         }
     }
 
+    /**
+     * 根据视频格式分派选择性解密逻辑。
+     *
+     * @param encryptedData 视频密文字节
+     * @param filename 原始文件名
+     * @param sm4Key Base64 编码的 SM4 密钥
+     * @return 解密后的视频字节
+     * @throws Exception 当格式解析或解密失败时抛出
+     */
     private static byte[] selectiveVideoDecrypt(byte[] encryptedData, String filename, String sm4Key) throws Exception {
-        HyperchaoticChenUtil.ChenKeyStreamConfig config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+        HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = deriveOptimizedChenConfigFromSm4Key(sm4Key);
 
         if (filename.endsWith(".avi")) {
             return AviSelectiveEncryptionUtil.decryptAvi(encryptedData, config);
@@ -607,17 +645,80 @@ public class Sm4EncryptionUtil {
         return outputStream.toByteArray();
     }
 
+    /**
+     * 从 SM4 密钥派生改进版超混沌 Chen 系统初值。
+     * <p>
+     * 方法先对 SM4 原始密钥做 SHA-256 摘要，再把摘要分成四段映射到 x0、y0、z0、w0 的安全区间。
+     * 这样每个文件的超混沌密钥流由该文件的 SM4 密钥唯一决定。
+     * </p>
+     *
+     * @param sm4Key Base64 编码的 SM4 密钥
+     * @return 带派生初值的改进版超混沌 Chen 配置
+     * @throws Exception 当密钥为空、Base64 解码失败或摘要算法不可用时抛出
+     */
+    private static HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig deriveOptimizedChenConfigFromSm4Key(String sm4Key) throws Exception {
+        if (sm4Key == null || sm4Key.trim().isEmpty()) {
+            throw new IllegalArgumentException("SM4密钥不能为空");
+        }
+
+        byte[] keyBytes = Base64.getDecoder().decode(sm4Key);
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(keyBytes);
+
+        return HyperchaoticChenOptimizedUtil.withInitialState(
+                digestToInitialValue(digest, 0, 0.10, 0.20),
+                digestToInitialValue(digest, 8, 0.20, 0.35),
+                digestToInitialValue(digest, 16, 0.30, 0.45),
+                digestToInitialValue(digest, 24, 0.40, 0.55)
+        );
+    }
+
+    /**
+     * 将 SHA-256 摘要的一段字节映射为指定范围内的超混沌初值。
+     *
+     * @param digest SHA-256 摘要
+     * @param offset 读取起始偏移
+     * @param min 初值下界
+     * @param max 初值上界
+     * @return 映射后的浮点初值
+     */
+    private static double digestToInitialValue(byte[] digest, int offset, double min, double max) {
+        long value = 0L;
+        for (int i = 0; i < 8; i++) {
+            value = (value << 8) | (digest[offset + i] & 0xFFL);
+        }
+        double unit = (value >>> 1) / (double) Long.MAX_VALUE;
+        return min + (max - min) * unit;
+    }
+
     // 辅助方法
+    /**
+     * 判断文件名是否属于当前支持的图像格式。
+     *
+     * @param filename 文件名
+     * @return 是支持的图像格式则返回 true
+     */
     private static boolean isImageFile(String filename) {
         return filename.endsWith(".bmp") || filename.endsWith(".png") ||
                 filename.endsWith(".jpg") || filename.endsWith(".jpeg");
     }
 
+    /**
+     * 判断文件名是否属于当前支持的音频格式。
+     *
+     * @param filename 文件名
+     * @return 是支持的音频格式则返回 true
+     */
     private static boolean isAudioFile(String filename) {
         return filename.endsWith(".wav") || filename.endsWith(".mp3") ||
                 filename.endsWith(".aac") || filename.endsWith(".flac");
     }
 
+    /**
+     * 判断文件名是否属于当前支持的视频格式。
+     *
+     * @param filename 文件名
+     * @return 是支持的视频格式则返回 true
+     */
     private static boolean isVideoFile(String filename) {
         return filename.endsWith(".mp4") || filename.endsWith(".avi") ||
                 filename.endsWith(".mov") || filename.endsWith(".mkv");
@@ -631,11 +732,23 @@ public class Sm4EncryptionUtil {
         return 0; // 默认不保留头部
     }
 
+    /**
+     * 返回旧版视频块加密逻辑使用的保留头部长度。
+     *
+     * @param filename 文件名
+     * @return 需要保留的视频头部字节数
+     */
     private static int getVideoHeaderSize(String filename) {
         // 视频文件头部大小（简化处理）
         return 1024; // 1KB头部
     }
 
+    /**
+     * 将整数转换为大端序 4 字节数组。
+     *
+     * @param value 整数值
+     * @return 大端序字节数组
+     */
     private static byte[] intToBytes(int value) {
         return new byte[] {
                 (byte) (value >> 24),
@@ -645,6 +758,12 @@ public class Sm4EncryptionUtil {
         };
     }
 
+    /**
+     * 将大端序 4 字节数组转换为整数。
+     *
+     * @param bytes 大端序字节数组
+     * @return 整数值
+     */
     private static int bytesToInt(byte[] bytes) {
         return ((bytes[0] & 0xFF) << 24) |
                 ((bytes[1] & 0xFF) << 16) |
