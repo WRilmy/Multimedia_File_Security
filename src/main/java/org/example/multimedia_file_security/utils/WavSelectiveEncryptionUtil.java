@@ -122,7 +122,7 @@ public class WavSelectiveEncryptionUtil {
      * 使用超混沌系统对WAV文件进行选择性加密
      * 保持文件头完整，只对PCM数据进行异或扰动
      */
-    public static byte[] selectiveEncryptWav(byte[] wavData, HyperchaoticChenUtil.ChenKeyStreamConfig config) throws IOException {
+    public static byte[] selectiveEncryptWav(byte[] wavData, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) throws IOException {
         WavInfo info = parseWav(wavData);
         
         // 克隆原始数据
@@ -137,14 +137,13 @@ public class WavSelectiveEncryptionUtil {
         }
         
         // 提取PCM数据
-        byte[] pcmData = Arrays.copyOfRange(wavData, pcmStart, pcmStart + pcmDataLength);
+        HyperchaoticChenOptimizedUtil.KeyStreamGenerator keyStream =
+                new HyperchaoticChenOptimizedUtil.KeyStreamGenerator(config);
         
         // 使用超混沌系统生成密钥流并异或
-        byte[] encryptedPcm = HyperchaoticChenUtil.xorWithKeyStream(pcmData, config);
+        keyStream.xorInPlace(result, pcmStart, pcmDataLength);
         
         // 将加密后的PCM数据写回
-        System.arraycopy(encryptedPcm, 0, result, pcmStart, encryptedPcm.length);
-        
         return result;
     }
 
@@ -152,20 +151,20 @@ public class WavSelectiveEncryptionUtil {
      * 对WAV文件进行全文件加密
      * 注意：全文件加密后文件将无法直接播放，需要解密后才能播放
      */
-    public static byte[] fullEncryptWav(byte[] wavData, HyperchaoticChenUtil.ChenKeyStreamConfig config) {
-        return HyperchaoticChenUtil.xorWithKeyStream(wavData, config);
+    public static byte[] fullEncryptWav(byte[] wavData, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) {
+        return HyperchaoticChenOptimizedUtil.xorWithKeyStream(wavData, config);
     }
 
     /**
      * 解密WAV文件（与加密过程相同，因为是异或操作）
      */
-    public static byte[] decryptWav(byte[] encryptedWavData, HyperchaoticChenUtil.ChenKeyStreamConfig config) throws IOException {
+    public static byte[] decryptWav(byte[] encryptedWavData, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) throws IOException {
         if (isValidWav(encryptedWavData)) {
             // 选择性加密的WAV（仍保持WAV格式）
             return selectiveEncryptWav(encryptedWavData, config);
         } else {
             // 全文件加密的WAV
-            return HyperchaoticChenUtil.xorWithKeyStream(encryptedWavData, config);
+            return HyperchaoticChenOptimizedUtil.xorWithKeyStream(encryptedWavData, config);
         }
     }
 }

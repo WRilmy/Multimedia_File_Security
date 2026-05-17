@@ -3,20 +3,17 @@ package org.example.multimedia_file_security.utils;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 /**
- * MP3文件解析和选择性加密工具
+ * MP3 parser and format-preserving selective encryption utility.
  */
 @Slf4j
 public class Mp3SelectiveEncryptionUtil {
 
-    // MP3帧同步字
     private static final int MP3_SYNC_WORD = 0xFFE00000;
     private static final int MP3_SYNC_MASK = 0xFFE00000;
 
@@ -44,27 +41,31 @@ public class Mp3SelectiveEncryptionUtil {
                     bitrate, sampleRate, frameSize);
         }
 
-        // 1. 修复 SideInfoSize 的计算逻辑 (基于 Version 和 ChannelMode)
+        /**
+         * 计算当前 MP3 帧的边信息长度。
+         *
+         * @return 边信息区字节数，无法识别时返回 0
+         */
         public int getSideInfoSize() {
-            // 注意：这里的 version 对应的是 MPEG Version: 0=2.5, 2=2, 3=1
-            // 你的 parseFrameHeader 里 frame.setVersion((header >> 19) & 0x03);
-            // 所以 version=3 代表 MPEG-1
-            if (getVersion() == 3) { // MPEG-1
-                return (getChannelMode() == 3) ? 17 : 32; // 单声道:17, 立体声:32
-            } else { // MPEG-2 或 MPEG-2.5
-                return (getChannelMode() == 3) ? 9 : 17;  // 单声道:9, 立体声:17
+            if (getLayer() != 1) {
+                return 0;
             }
+            if (getVersion() == 3) {
+                return (getChannelMode() == 3) ? 17 : 32;
+            }
+            return (getChannelMode() == 3) ? 9 : 17;
         }
 
-        // 2. 新增：计算主数据的起始偏移量 (这才是你应该在加密代码里调用的方法)
-        // 结构: [Header 4B] + [CRC 0/2B] + [Side Info X B]
+        /**
+         * 计算 MP3 帧中主数据区的起始偏移。
+         *
+         * @return 相对于当前帧起点的主数据偏移
+         */
         public int getMainDataOffset() {
-            int offset = 4; // 帧头固定4字节
-            // 如果 Protection Bit = 0，表示有 CRC 校验（2字节）
+            int offset = 4;
             if (getProtection() == 0) {
                 offset += 2;
             }
-            // 加上侧信息的长度
             offset += getSideInfoSize();
             return offset;
         }
@@ -84,65 +85,60 @@ public class Mp3SelectiveEncryptionUtil {
     }
 
     /**
-     * 验证MP3格式
+     * 判断输入数据是否具有 MP3 文件或 MP3 帧的基本特征。
+     *
+     * @param mp3Data 待检查的文件字节
+     * @return 如果包含 ID3v2 头或可识别帧同步字则返回 true
      */
     public static boolean isValidMp3(byte[] mp3Data) {
-        if (mp3Data.length < 4) return false;
-
-        // 检查ID3v2标签
-        if (mp3Data[0] == 'I' && mp3Data[1] == 'D' && mp3Data[2] == '3') {
-            return true;
+        if (mp3Data == null || mp3Data.length < 4) {
+            return false;
         }
 
-        // 检查帧同步
-        int sync = ((mp3Data[0] & 0xFF) << 24) | ((mp3Data[1] & 0xFF) << 16) |
-                  ((mp3Data[2] & 0xFF) << 8) | (mp3Data[3] & 0xFF);
-        return (sync & MP3_SYNC_MASK) == MP3_SYNC_WORD;
+        int start = 0;
+        if (hasId3v2Header(mp3Data)) {
+            start = getId3v2TagSize(mp3Data);
+            if (start < 0 || start >= mp3Data.length) {
+                return false;
+            }
+        }
+
+        return findNextFrame(mp3Data, start) >= 0;
     }
 
     /**
-     * 解析MP3文件信息
+     * 解析 MP3 文件，跳过 ID3v2 标签后逐帧收集帧偏移、帧长和编码参数。
+     *
+     * @param mp3Data MP3 文件字节
+     * @return MP3 结构信息
+     * @throws IOException 当输入不是有效 MP3 数据时抛出
      */
     public static Mp3Info parseMp3(byte[] mp3Data) throws IOException {
         if (!isValidMp3(mp3Data)) {
-            throw new IllegalArgumentException("无效的MP3文件");
+            throw new IllegalArgumentException("Invalid MP3 file");
         }
 
         Mp3Info info = new Mp3Info();
-        ByteArrayInputStream bis = new ByteArrayInputStream(mp3Data);
-        DataInputStream dis = new DataInputStream(bis);
-
-        // 检查并跳过ID3v2标签
-        if (mp3Data[0] == 'I' && mp3Data[1] == 'D' && mp3Data[2] == '3') {
-            dis.skipBytes(3); // ID3
-            dis.skipBytes(2); // 版本
-            dis.skipBytes(1); // 标志
-            // 计算ID3v2大小
-            int size = ((mp3Data[6] & 0x7F) << 21) | ((mp3Data[7] & 0x7F) << 14) |
-                       ((mp3Data[8] & 0x7F) << 7) | (mp3Data[9] & 0x7F);
-            info.setId3v2Size(size + 10);
-            dis.skipBytes(size);
+        if (hasId3v2Header(mp3Data)) {
+            int id3v2Size = getId3v2TagSize(mp3Data);
+            if (id3v2Size < 0 || id3v2Size > mp3Data.length) {
+                throw new IllegalArgumentException("Invalid MP3 file");
+            }
+            info.setId3v2Size(id3v2Size);
         }
 
-        // 解析MP3帧
         int currentPos = info.getId3v2Size();
         while (currentPos + 4 <= mp3Data.length) {
-            int sync = ((mp3Data[currentPos] & 0xFF) << 24) |
-                      ((mp3Data[currentPos + 1] & 0xFF) << 16) |
-                      ((mp3Data[currentPos + 2] & 0xFF) << 8) |
-                      (mp3Data[currentPos + 3] & 0xFF);
-
-            if ((sync & MP3_SYNC_MASK) == MP3_SYNC_WORD) {
+            int header = readInt(mp3Data, currentPos);
+            if ((header & MP3_SYNC_MASK) == MP3_SYNC_WORD) {
                 Mp3FrameInfo frame = parseFrameHeader(mp3Data, currentPos);
                 if (frame != null) {
                     info.getFrames().add(frame);
                     currentPos += frame.getFrameSize();
-                } else {
-                    currentPos++;
+                    continue;
                 }
-            } else {
-                currentPos++;
             }
+            currentPos++;
         }
 
         info.setTotalFrames(info.getFrames().size());
@@ -150,15 +146,11 @@ public class Mp3SelectiveEncryptionUtil {
         return info;
     }
 
-    /**
-     * 解析MP3帧头
-     */
     private static final int[][] BITRATES = {
             {0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0},
             {0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0},
             {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0},
             {0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0},
-            {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0},
             {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0}
     };
 
@@ -168,18 +160,99 @@ public class Mp3SelectiveEncryptionUtil {
             {11025, 12000, 8000, 0}
     };
 
+    /**
+     * 判断文件开头是否存在 ID3v2 标签。
+     *
+     * @param data 文件字节
+     * @return 存在 ID3v2 标签则返回 true
+     */
+    private static boolean hasId3v2Header(byte[] data) {
+        return data.length >= 10 && data[0] == 'I' && data[1] == 'D' && data[2] == '3';
+    }
+
+    /**
+     * 读取 ID3v2 标签的完整长度。
+     *
+     * @param data 文件字节
+     * @return ID3v2 标签总长度，不存在时返回 0
+     */
+    private static int getId3v2TagSize(byte[] data) {
+        if (!hasId3v2Header(data)) {
+            return 0;
+        }
+        int bodySize = ((data[6] & 0x7F) << 21) |
+                ((data[7] & 0x7F) << 14) |
+                ((data[8] & 0x7F) << 7) |
+                (data[9] & 0x7F);
+        int totalSize = bodySize + 10;
+        boolean hasFooter = data[3] == 4 && (data[5] & 0x10) != 0;
+        return hasFooter ? totalSize + 10 : totalSize;
+    }
+
+    /**
+     * 从指定位置开始查找下一个可解析的 MP3 帧头。
+     *
+     * @param data MP3 文件字节
+     * @param start 起始搜索偏移
+     * @return 帧头偏移，未找到时返回 -1
+     */
+    private static int findNextFrame(byte[] data, int start) {
+        int currentPos = Math.max(0, start);
+        while (currentPos + 4 <= data.length) {
+            int header = readInt(data, currentPos);
+            if ((header & MP3_SYNC_MASK) == MP3_SYNC_WORD && parseFrameHeader(data, currentPos) != null) {
+                return currentPos;
+            }
+            currentPos++;
+        }
+        return -1;
+    }
+
+    /**
+     * 从指定偏移读取大端序 32 位整数。
+     *
+     * @param data 数据字节
+     * @param pos 起始偏移
+     * @return 大端序整数值
+     */
+    private static int readInt(byte[] data, int pos) {
+        return ((data[pos] & 0xFF) << 24) |
+                ((data[pos + 1] & 0xFF) << 16) |
+                ((data[pos + 2] & 0xFF) << 8) |
+                (data[pos + 3] & 0xFF);
+    }
+
+    /**
+     * 根据 MP3 版本、层级和码率索引查表得到码率。
+     *
+     * @param version MPEG 版本标识
+     * @param layer 音频层级标识
+     * @param bitrateIndex 码率索引
+     * @return 码率，单位 kbps
+     */
     private static int getBitrate(int version, int layer, int bitrateIndex) {
         int tableIndex;
         if (version == 3) {
-            tableIndex = layer - 1;
+            tableIndex = 3 - layer;
         } else {
-            tableIndex = layer == 1 ? 3 : (layer == 2 ? 4 : 5);
+            tableIndex = layer == 3 ? 3 : 4;
         }
-        if (tableIndex < 0 || tableIndex >= BITRATES.length) return 0;
-        if (bitrateIndex < 0 || bitrateIndex >= BITRATES[tableIndex].length) return 0;
+        if (tableIndex < 0 || tableIndex >= BITRATES.length) {
+            return 0;
+        }
+        if (bitrateIndex < 0 || bitrateIndex >= BITRATES[tableIndex].length) {
+            return 0;
+        }
         return BITRATES[tableIndex][bitrateIndex];
     }
 
+    /**
+     * 根据 MPEG 版本和采样率索引查表得到采样率。
+     *
+     * @param version MPEG 版本标识
+     * @param sampleRateIndex 采样率索引
+     * @return 采样率，单位 Hz
+     */
     private static int getSampleRate(int version, int sampleRateIndex) {
         int tableIndex;
         if (version == 3) {
@@ -189,30 +262,38 @@ public class Mp3SelectiveEncryptionUtil {
         } else {
             tableIndex = 2;
         }
-        if (sampleRateIndex < 0 || sampleRateIndex >= SAMPLE_RATES[tableIndex].length) return 0;
+        if (sampleRateIndex < 0 || sampleRateIndex >= SAMPLE_RATES[tableIndex].length) {
+            return 0;
+        }
         return SAMPLE_RATES[tableIndex][sampleRateIndex];
     }
 
+    /**
+     * 解析单个 MP3 帧头，计算帧长、码率、采样率和声道模式。
+     *
+     * @param data MP3 文件字节
+     * @param pos 帧头偏移
+     * @return 可识别帧信息，无法识别时返回 null
+     */
     private static Mp3FrameInfo parseFrameHeader(byte[] data, int pos) {
-        if (pos + 4 > data.length) return null;
+        if (pos + 4 > data.length) {
+            return null;
+        }
 
-        int header = ((data[pos] & 0xFF) << 24) | ((data[pos + 1] & 0xFF) << 16) |
-                    ((data[pos + 2] & 0xFF) << 8) | (data[pos + 3] & 0xFF);
-
+        int header = readInt(data, pos);
         Mp3FrameInfo frame = new Mp3FrameInfo();
         frame.setFrameSync(header >> 21);
         frame.setVersion((header >> 19) & 0x03);
         frame.setLayer((header >> 17) & 0x03);
         frame.setProtection((header >> 16) & 0x01);
 
-        if (frame.getVersion() == 1 || frame.getLayer() == 0) {
+        if ((header & MP3_SYNC_MASK) != MP3_SYNC_WORD || frame.getVersion() == 1 || frame.getLayer() == 0) {
             return null;
         }
 
         int bitrateIndex = (header >> 12) & 0x0F;
-        frame.setBitrate(getBitrate(frame.getVersion(), frame.getLayer(), bitrateIndex));
-
         int sampleRateIndex = (header >> 10) & 0x03;
+        frame.setBitrate(getBitrate(frame.getVersion(), frame.getLayer(), bitrateIndex));
         frame.setSampleRate(getSampleRate(frame.getVersion(), sampleRateIndex));
 
         if (frame.getBitrate() == 0 || frame.getSampleRate() == 0) {
@@ -230,98 +311,97 @@ public class Mp3SelectiveEncryptionUtil {
         int frameSize;
         if (frame.getLayer() == 3) {
             frameSize = (12 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding()) * 4;
+        } else if (frame.getLayer() == 1 && frame.getVersion() != 3) {
+            frameSize = 72 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding();
         } else {
-            if (frame.getVersion() == 3 || frame.getVersion() == 2) {
-                frameSize = 144 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding();
-            } else {
-                frameSize = 72 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding();
-            }
+            frameSize = 144 * frame.getBitrate() * 1000 / frame.getSampleRate() + frame.getPadding();
         }
-        frame.setFrameSize(frameSize);
-        frame.setStartPos(pos);
 
-        if (frameSize <= 0) {
+        int mainDataOffset = 4 + (frame.getProtection() == 0 ? 2 : 0) + frame.getSideInfoSize();
+        if (frameSize <= mainDataOffset || pos + frameSize > data.length) {
             return null;
         }
 
+        frame.setFrameSize(frameSize);
+        frame.setStartPos(pos);
         return frame;
     }
 
     /**
-     * 使用超混沌系统对MP3文件进行选择性加密
-     * 保留帧头(4B)+CRC(0/2B)+侧信息(9-32B)，只对主数据进行异或扰动
-     * 同时加密ID3v2标签主体（保留10字节头），避免元信息泄露
-     * 解码器能正确解析帧结构，但音频内容变为噪声
+     * 对 MP3 文件执行结构保持型选择性加密。
+     * <p>
+     * 方法保留 ID3 标签、帧头和边信息，只对帧主数据区做连续密钥流 XOR，
+     * 从而尽量保持播放器识别能力，同时破坏实际音频内容。
+     * </p>
+     *
+     * @param mp3Data MP3 文件字节
+     * @param config 改进版超混沌 Chen 密钥流配置
+     * @return 加密后的 MP3 字节
+     * @throws IOException 当 MP3 结构解析失败时抛出
      */
-    public static byte[] selectiveEncryptMp3(byte[] mp3Data, HyperchaoticChenUtil.ChenKeyStreamConfig config) throws IOException {
+    public static byte[] selectiveEncryptMp3(byte[] mp3Data, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) throws IOException {
         Mp3Info info = parseMp3(mp3Data);
         byte[] result = Arrays.copyOf(mp3Data, mp3Data.length);
-
         List<Mp3FrameInfo> frames = info.getFrames();
+        HyperchaoticChenOptimizedUtil.KeyStreamGenerator keyStream =
+                new HyperchaoticChenOptimizedUtil.KeyStreamGenerator(config);
 
-        // 1. 加密ID3v2标签主体（保留10字节头：ID3+版本+标志+大小）
-        int id3v2Size = info.getId3v2Size();
-        if (id3v2Size > 10) {
-            int id3BodyStart = 10;
-            int id3BodyLen = id3v2Size - 10;
-            byte[] id3Body = Arrays.copyOfRange(mp3Data, id3BodyStart, id3BodyStart + id3BodyLen);
-            byte[] encryptedId3 = HyperchaoticChenUtil.xorWithKeyStream(id3Body, config);
-            System.arraycopy(encryptedId3, 0, result, id3BodyStart, encryptedId3.length);
-            log.info("ID3v2标签主体已加密: 保留10字节头, {}字节主体加密完成", id3BodyLen);
+        if (info.getId3v2Size() > 0) {
+            log.info("MP3 ID3v2 tag preserved: {} bytes", info.getId3v2Size());
         }
 
-        // 2. 加密所有帧的主数据
         int encryptCount = 0;
         int skipCount = 0;
-
-        for (Mp3FrameInfo frame : frames) {
-            int frameStart = frame.getStartPos();
-            int frameSize = frame.getFrameSize();
-            int frameEnd = frameStart + frameSize;
-
-            if (frameEnd > mp3Data.length) {
+        for (int i = 0; i < frames.size(); i++) {
+            Mp3FrameInfo frame = frames.get(i);
+            // The first audio frame can carry Xing/Info/VBRI/LAME metadata used by strict players.
+            if (i == 0) {
                 skipCount++;
                 continue;
             }
 
-            int mainDataOffset = frame.getMainDataOffset();
-            int mainDataStart = frameStart + mainDataOffset;
+            int frameStart = frame.getStartPos();
+            int frameEnd = frameStart + frame.getFrameSize();
+            int mainDataStart = frameStart + frame.getMainDataOffset();
 
-            if (mainDataStart >= frameEnd) {
+            if (frameEnd > mp3Data.length || mainDataStart >= frameEnd) {
                 skipCount++;
                 continue;
             }
 
             int mainDataLen = frameEnd - mainDataStart;
-            byte[] mainData = Arrays.copyOfRange(mp3Data, mainDataStart, mainDataStart + mainDataLen);
-            byte[] encryptedData = HyperchaoticChenUtil.xorWithKeyStream(mainData, config);
-            System.arraycopy(encryptedData, 0, result, mainDataStart, encryptedData.length);
+            keyStream.xorInPlace(result, mainDataStart, mainDataLen);
             encryptCount++;
         }
 
-        log.info("MP3选择性加密完成: {}/{} 帧已加密, {} 帧跳过",
+        log.info("MP3 selective encryption completed: {}/{} frames encrypted, {} frames skipped",
                 encryptCount, frames.size(), skipCount);
         return result;
     }
 
     /**
-     * 对MP3文件进行全文件加密
+     * 对 MP3 文件整体执行超混沌 XOR 加密。
+     *
+     * @param mp3Data MP3 文件字节
+     * @param config 改进版超混沌 Chen 密钥流配置
+     * @return 全文件 XOR 后的字节
      */
-    public static byte[] fullEncryptMp3(byte[] mp3Data, HyperchaoticChenUtil.ChenKeyStreamConfig config) {
-        return HyperchaoticChenUtil.xorWithKeyStream(mp3Data, config);
+    public static byte[] fullEncryptMp3(byte[] mp3Data, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) {
+        return HyperchaoticChenOptimizedUtil.xorWithKeyStream(mp3Data, config);
     }
 
     /**
-     * 解密MP3文件（与加密过程相同，因为是异或操作）
-     * 保持帧头不加密，只解密帧数据部分
+     * 根据 MP3 密文是否仍可识别，选择结构保持解密或全文件 XOR 解密。
+     *
+     * @param encryptedMp3Data MP3 密文字节
+     * @param config 改进版超混沌 Chen 密钥流配置
+     * @return 解密后的字节
+     * @throws IOException 当 MP3 结构解析失败时抛出
      */
-    public static byte[] decryptMp3(byte[] encryptedMp3Data, HyperchaoticChenUtil.ChenKeyStreamConfig config) throws IOException {
+    public static byte[] decryptMp3(byte[] encryptedMp3Data, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) throws IOException {
         if (isValidMp3(encryptedMp3Data)) {
-            // 选择性加密的MP3（仍保持MP3格式）
             return selectiveEncryptMp3(encryptedMp3Data, config);
-        } else {
-            // 全文件加密的MP3
-            return HyperchaoticChenUtil.xorWithKeyStream(encryptedMp3Data, config);
         }
+        return HyperchaoticChenOptimizedUtil.xorWithKeyStream(encryptedMp3Data, config);
     }
 }

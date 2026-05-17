@@ -33,6 +33,11 @@ public class AviSelectiveEncryptionUtil {
         private int offset;
         private byte[] data;
 
+        /**
+         * 将 AVI 块的 FourCC 标识转换为可读字符串。
+         *
+         * @return FourCC 的 ASCII 字符串表示
+         */
         public String fourCCStr() {
             return new String(fourCC, StandardCharsets.US_ASCII);
         }
@@ -62,6 +67,12 @@ public class AviSelectiveEncryptionUtil {
         }
     }
 
+    /**
+     * 判断输入数据是否具有基本的 AVI 容器头特征。
+     *
+     * @param aviData 待检查的文件字节
+     * @return 如果包含 RIFF/AVI 标识则返回 true，否则返回 false
+     */
     public static boolean isValidAvi(byte[] aviData) {
         if (aviData.length < 12) return false;
         for (int i = 0; i < 4; i++) {
@@ -73,6 +84,13 @@ public class AviSelectiveEncryptionUtil {
         return true;
     }
 
+    /**
+     * 解析 AVI 容器结构，并收集 movi 区域中的视频帧块和音频块。
+     *
+     * @param aviData AVI 文件字节
+     * @return AVI 文件结构信息
+     * @throws IOException 当文件结构无法按 AVI 规则读取时抛出
+     */
     public static AviInfo parseAvi(byte[] aviData) throws IOException {
         if (!isValidAvi(aviData)) {
             throw new IllegalArgumentException("无效的AVI文件");
@@ -118,6 +136,14 @@ public class AviSelectiveEncryptionUtil {
         return info;
     }
 
+    /**
+     * 解析 AVI 的 movi 列表，提取直接存放在 movi 中的音视频数据块。
+     *
+     * @param aviData AVI 文件字节
+     * @param start movi 数据起始偏移
+     * @param end movi 数据结束偏移
+     * @param info 解析结果承载对象
+     */
     private static void parseMoviList(byte[] aviData, int start, int end, AviInfo info) {
         int pos = start;
         while (pos + 8 <= end && pos + 8 <= aviData.length) {
@@ -156,6 +182,14 @@ public class AviSelectiveEncryptionUtil {
         }
     }
 
+    /**
+     * 解析 AVI 的 rec 列表，提取交错存放的音视频数据块。
+     *
+     * @param aviData AVI 文件字节
+     * @param start rec 数据起始偏移
+     * @param end rec 数据结束偏移
+     * @param info 解析结果承载对象
+     */
     private static void parseRecList(byte[] aviData, int start, int end, AviInfo info) {
         int pos = start;
         while (pos + 8 <= end && pos + 8 <= aviData.length) {
@@ -183,10 +217,22 @@ public class AviSelectiveEncryptionUtil {
         }
     }
 
+    /**
+     * 判断 AVI 块标识是否表示视频数据块。
+     *
+     * @param chunkId FourCC 块标识
+     * @return 是视频块则返回 true
+     */
     private static boolean isVideoChunk(byte[] chunkId) {
         return Arrays.equals(chunkId, VIDEO_CHUNK_ID_DC) || Arrays.equals(chunkId, VIDEO_CHUNK_ID_DB);
     }
 
+    /**
+     * 判断 AVI 块标识是否表示音频数据块。
+     *
+     * @param chunkId FourCC 块标识
+     * @return 是音频块则返回 true
+     */
     private static boolean isAudioChunk(byte[] chunkId) {
         return Arrays.equals(chunkId, AUDIO_CHUNK_ID_WB);
     }
@@ -250,15 +296,29 @@ public class AviSelectiveEncryptionUtil {
         return Math.min(jpegData.length / 4, 512);
     }
 
-    public static byte[] selectiveEncryptAvi(byte[] aviData, HyperchaoticChenUtil.ChenKeyStreamConfig config) throws IOException {
+    /**
+     * 对 AVI 文件执行结构保持型选择性加密。
+     * <p>
+     * 方法保留 RIFF、LIST、索引和帧内必要头部，只对视频帧压缩载荷和音频块载荷做连续密钥流 XOR。
+     * 这样密文仍能被播放器识别，同时音视频内容被扰动。
+     * </p>
+     *
+     * @param aviData AVI 文件字节
+     * @param config 改进版超混沌 Chen 密钥流配置
+     * @return 加密后的 AVI 字节
+     * @throws IOException 当 AVI 结构解析失败时抛出
+     */
+    public static byte[] selectiveEncryptAvi(byte[] aviData, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) throws IOException {
         AviInfo info = parseAvi(aviData);
 
         if (info.getVideoChunks().isEmpty() && info.getAudioChunks().isEmpty()) {
             log.warn("AVI中未找到视频或音频帧数据，回退到全文件加密");
-            return HyperchaoticChenUtil.xorWithKeyStream(aviData, config);
+            return HyperchaoticChenOptimizedUtil.xorWithKeyStream(aviData, config);
         }
 
         byte[] result = Arrays.copyOf(aviData, aviData.length);
+        HyperchaoticChenOptimizedUtil.KeyStreamGenerator keyStream =
+                new HyperchaoticChenOptimizedUtil.KeyStreamGenerator(config);
 
         for (AviChunk chunk : info.getVideoChunks()) {
             int offset = chunk.getOffset();
@@ -267,9 +327,7 @@ public class AviSelectiveEncryptionUtil {
 
             int headerSize = detectFrameHeaderSize(frameData);
             if (size > headerSize) {
-                byte[] payloadData = Arrays.copyOfRange(frameData, headerSize, size);
-                byte[] encryptedPayload = HyperchaoticChenUtil.xorWithKeyStream(payloadData, config);
-                System.arraycopy(encryptedPayload, 0, result, offset + headerSize, encryptedPayload.length);
+                keyStream.xorInPlace(result, offset + headerSize, size - headerSize);
             }
         }
 
@@ -287,9 +345,7 @@ public class AviSelectiveEncryptionUtil {
             }
 
             if (size > preserveBytes) {
-                byte[] payloadData = Arrays.copyOfRange(aviData, offset + preserveBytes, offset + size);
-                byte[] encryptedPayload = HyperchaoticChenUtil.xorWithKeyStream(payloadData, config);
-                System.arraycopy(encryptedPayload, 0, result, offset + preserveBytes, encryptedPayload.length);
+                keyStream.xorInPlace(result, offset + preserveBytes, size - preserveBytes);
             }
         }
 
@@ -298,28 +354,61 @@ public class AviSelectiveEncryptionUtil {
         return result;
     }
 
-    public static byte[] selectiveDecryptAvi(byte[] encryptedAviData, HyperchaoticChenUtil.ChenKeyStreamConfig config) throws IOException {
+    /**
+     * 对 AVI 选择性密文执行解密。
+     * <p>
+     * 因为选择性加密使用 XOR，同一密钥流再次作用于相同区间即可恢复明文。
+     * </p>
+     *
+     * @param encryptedAviData AVI 密文字节
+     * @param config 改进版超混沌 Chen 密钥流配置
+     * @return 解密后的 AVI 字节
+     * @throws IOException 当 AVI 结构解析失败时抛出
+     */
+    public static byte[] selectiveDecryptAvi(byte[] encryptedAviData, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) throws IOException {
         if (!isValidAvi(encryptedAviData)) {
             log.warn("不是有效的AVI文件，回退到全文件解密");
-            return HyperchaoticChenUtil.xorWithKeyStream(encryptedAviData, config);
+            return HyperchaoticChenOptimizedUtil.xorWithKeyStream(encryptedAviData, config);
         }
 
         // XOR加密的对称性：加密和解密使用相同的操作
         return selectiveEncryptAvi(encryptedAviData, config);
     }
 
-    public static byte[] fullEncryptAvi(byte[] aviData, HyperchaoticChenUtil.ChenKeyStreamConfig config) {
-        return HyperchaoticChenUtil.xorWithKeyStream(aviData, config);
+    /**
+     * 对 AVI 文件整体执行超混沌 XOR 加密。
+     *
+     * @param aviData AVI 文件字节
+     * @param config 改进版超混沌 Chen 密钥流配置
+     * @return 全文件 XOR 后的字节
+     */
+    public static byte[] fullEncryptAvi(byte[] aviData, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) {
+        return HyperchaoticChenOptimizedUtil.xorWithKeyStream(aviData, config);
     }
 
-    public static byte[] decryptAvi(byte[] encryptedAviData, HyperchaoticChenUtil.ChenKeyStreamConfig config) throws IOException {
+    /**
+     * 根据 AVI 密文是否仍可识别，选择结构保持解密或全文件 XOR 解密。
+     *
+     * @param encryptedAviData AVI 密文字节
+     * @param config 改进版超混沌 Chen 密钥流配置
+     * @return 解密后的字节
+     * @throws IOException 当 AVI 结构解析失败时抛出
+     */
+    public static byte[] decryptAvi(byte[] encryptedAviData, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) throws IOException {
         if (isValidAvi(encryptedAviData)) {
             return selectiveDecryptAvi(encryptedAviData, config);
         } else {
-            return HyperchaoticChenUtil.xorWithKeyStream(encryptedAviData, config);
+            return HyperchaoticChenOptimizedUtil.xorWithKeyStream(encryptedAviData, config);
         }
     }
 
+    /**
+     * 从指定偏移读取小端序 32 位整数。
+     *
+     * @param data 数据字节
+     * @param offset 起始偏移
+     * @return 小端序整数值
+     */
     private static int readLE32(byte[] data, int offset) {
         return (data[offset] & 0xFF) |
                 ((data[offset + 1] & 0xFF) << 8) |
