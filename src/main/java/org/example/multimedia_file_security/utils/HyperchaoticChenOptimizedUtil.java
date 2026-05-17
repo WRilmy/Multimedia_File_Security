@@ -129,6 +129,77 @@ public final class HyperchaoticChenOptimizedUtil {
         }
     }
 
+    public static final class KeyStreamGenerator {
+        private final ChenKeyStreamConfig config;
+        private final MessageDigest digest;
+        private State state;
+        private long blockCounter;
+        private byte[] currentBlock;
+        private int blockOffset;
+
+        public KeyStreamGenerator(ChenKeyStreamConfig config) {
+            if (config == null) {
+                throw new IllegalArgumentException("config must not be null");
+            }
+            try {
+                this.config = config;
+                this.digest = MessageDigest.getInstance("SHA-256");
+                this.state = new State(config.getX0(), config.getY0(), config.getZ0(), config.getW0());
+                this.blockCounter = 0L;
+                this.currentBlock = new byte[0];
+                this.blockOffset = 0;
+
+                for (int i = 0; i < config.getWarmupIterations(); i++) {
+                    this.state = rk4Next(this.state, config);
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to initialize optimized Chen key stream generator", e);
+            }
+        }
+
+        public byte[] nextBytes(int length) {
+            if (length < 0) {
+                throw new IllegalArgumentException("length must be >= 0");
+            }
+            byte[] output = new byte[length];
+            fill(output, 0, length);
+            return output;
+        }
+
+        public void xorInPlace(byte[] data, int offset, int length) {
+            if (data == null) {
+                throw new IllegalArgumentException("data must not be null");
+            }
+            if (offset < 0 || length < 0 || offset + length > data.length) {
+                throw new IllegalArgumentException("offset/length is out of range");
+            }
+            for (int i = 0; i < length; i++) {
+                data[offset + i] ^= nextByte();
+            }
+        }
+
+        private void fill(byte[] target, int offset, int length) {
+            if (offset < 0 || length < 0 || offset + length > target.length) {
+                throw new IllegalArgumentException("offset/length is out of range");
+            }
+            for (int i = 0; i < length; i++) {
+                target[offset + i] = nextByte();
+            }
+        }
+
+        private byte nextByte() {
+            if (blockOffset >= currentBlock.length) {
+                for (int i = 0; i < config.getSamplingStride(); i++) {
+                    state = rk4Next(state, config);
+                }
+                currentBlock = whitenState(state, blockCounter, digest);
+                blockCounter++;
+                blockOffset = 0;
+            }
+            return currentBlock[blockOffset++];
+        }
+    }
+
     /**
      * 生成指定长度的密钥流
      */

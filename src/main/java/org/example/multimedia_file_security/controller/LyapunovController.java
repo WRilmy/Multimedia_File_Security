@@ -4,9 +4,20 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.multimedia_file_security.dto.Result;
 import org.example.multimedia_file_security.utils.HyperchaoticChenOptimizedUtil;
 import org.example.multimedia_file_security.utils.HyperchaoticChenUtil;
+import org.example.multimedia_file_security.utils.NistRandomnessTestUtil;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.Duration;
 import java.util.*;
+
+import static java.lang.Thread.sleep;
 
 /**
  * Lyapunov指数计算控制器
@@ -16,6 +27,43 @@ import java.util.*;
 @Slf4j
 @RequestMapping("/lyapunov")
 public class LyapunovController {
+
+    /**
+     * 返回超混沌吸引子图片。
+     * type=standard 返回标准版 Chen 系统，type=optimized 返回改进版 Chen 系统。
+     */
+    @GetMapping(value = "/attractor-image", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> getAttractorImage(
+            @RequestParam(value = "type", defaultValue = "standard") String type) throws IOException {
+        String resourcePath = switch (type == null ? "" : type.toLowerCase(Locale.ROOT)) {
+            case "standard" -> "chaos-images/standard-attractor.png";
+            case "optimized" -> "chaos-images/optimized-attractor.png";
+            default -> null;
+        };
+
+        if (resourcePath == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        ClassPathResource resource = new ClassPathResource(resourcePath);
+        if (!resource.exists()) {
+            log.warn("超混沌吸引子图片不存在: {}", resourcePath);
+            return ResponseEntity.notFound().build();
+        }
+
+        byte[] imageBytes;
+        try (InputStream inputStream = resource.getInputStream()) {
+            imageBytes = inputStream.readAllBytes();
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.IMAGE_PNG);
+        headers.setContentLength(imageBytes.length);
+        headers.setCacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePublic());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(imageBytes);
+    }
 
     /**
      * 计算标准版四维超混沌Chen系统的Lyapunov指数
@@ -70,6 +118,37 @@ public class LyapunovController {
         } catch (Exception e) {
             log.error("改进版Lyapunov指数计算失败", e);
             return Result.error(500, "计算失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 生成改进版超混沌 Chen 密钥流并执行 NIST 随机性测试。
+     *
+     * @param lengthBytes 测试样本长度，单位字节，后端会限制在 1KB 到 1MB 之间
+     * @param configType 参数配置类型，支持 default、highCoupling/highLyapunov 和 negativeFeedback
+     * @return 密钥流参数、NIST 测试列表和汇总结果
+     */
+    @GetMapping("/nist-key-stream")
+    public Result<Map<String, Object>> testOptimizedChenKeyStreamNist(
+            @RequestParam(value = "lengthBytes", defaultValue = "131072") int lengthBytes,
+            @RequestParam(value = "configType", defaultValue = "default") String configType) {
+        try {
+            int safeLength = Math.max(1024, Math.min(lengthBytes, 1024 * 1024));
+            HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = buildOptimizedConfig(configType);
+            byte[] keyStream = HyperchaoticChenOptimizedUtil.generateKeyStream(safeLength, config);
+
+            Map<String, Object> nistResult = NistRandomnessTestUtil.runKeyStreamTests(keyStream);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("configType", configType);
+            result.put("lengthBytes", safeLength);
+            result.put("lengthBits", safeLength * 8L);
+            result.put("parameters", buildOptimizedParameters(config));
+            result.putAll(nistResult);
+
+            return Result.success("NIST key stream test completed", result);
+        } catch (Exception e) {
+            log.error("NIST key stream test failed", e);
+            return Result.error(500, "NIST key stream test failed: " + e.getMessage());
         }
     }
 
@@ -160,6 +239,14 @@ public class LyapunovController {
         }
     }
 
+    /**
+     * 将标准 Chen 系统的 Lyapunov 指数和参数组装为前端可展示的数据结构。
+     *
+     * @param exponents Lyapunov 指数数组
+     * @param version 系统版本名称
+     * @param config 标准 Chen 系统配置
+     * @return 前端展示用结果 Map
+     */
     private Map<String, Object> buildLyapunovResult(double[] exponents, String version, 
                                                      HyperchaoticChenUtil.ChenKeyStreamConfig config) {
         Map<String, Object> result = new HashMap<>();
@@ -203,6 +290,14 @@ public class LyapunovController {
         return result;
     }
 
+    /**
+     * 将改进版 Chen 系统的 Lyapunov 指数和参数组装为前端可展示的数据结构。
+     *
+     * @param exponents Lyapunov 指数数组
+     * @param version 系统版本名称
+     * @param config 改进版 Chen 系统配置
+     * @return 前端展示用结果 Map
+     */
     private Map<String, Object> buildOptimizedLyapunovResult(double[] exponents, String version,
                                                               HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) {
         Map<String, Object> result = new HashMap<>();
@@ -243,6 +338,52 @@ public class LyapunovController {
         return result;
     }
 
+    /**
+     * 根据前端传入的配置名称构造改进版 Chen 系统参数。
+     *
+     * @param configType 配置名称
+     * @return 对应的改进版 Chen 密钥流配置
+     */
+    private HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig buildOptimizedConfig(String configType) {
+        if ("highCoupling".equalsIgnoreCase(configType) || "highLyapunov".equalsIgnoreCase(configType)) {
+            return HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.highCouplingConfig();
+        }
+        if ("negativeFeedback".equalsIgnoreCase(configType)) {
+            return HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.negativeFeedbackConfig();
+        }
+        return HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.defaultConfig();
+    }
+
+    /**
+     * 提取改进版 Chen 系统参数，供 NIST 和 Lyapunov 前端模块展示。
+     *
+     * @param config 改进版 Chen 密钥流配置
+     * @return 参数名到参数值的有序映射
+     */
+    private Map<String, Object> buildOptimizedParameters(HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) {
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        parameters.put("a", config.getA());
+        parameters.put("b", config.getB());
+        parameters.put("c", config.getC());
+        parameters.put("d", config.getD());
+        parameters.put("e", config.getE());
+        parameters.put("r", config.getR());
+        parameters.put("x0", config.getX0());
+        parameters.put("y0", config.getY0());
+        parameters.put("z0", config.getZ0());
+        parameters.put("w0", config.getW0());
+        parameters.put("stepSize", config.getStepSize());
+        parameters.put("warmupIterations", config.getWarmupIterations());
+        parameters.put("samplingStride", config.getSamplingStride());
+        return parameters;
+    }
+
+    /**
+     * 统计 Lyapunov 指数中大于 0 的数量。
+     *
+     * @param exponents Lyapunov 指数数组
+     * @return 正 Lyapunov 指数个数
+     */
     private int countPositive(double[] exponents) {
         int count = 0;
         for (double exp : exponents) {
@@ -280,6 +421,14 @@ public class LyapunovController {
         return j + sum / Math.abs(sorted[j]);
     }
 
+    /**
+     * 从请求参数中读取 double 值，缺失或类型不匹配时使用默认值。
+     *
+     * @param params 请求参数 Map
+     * @param key 参数名
+     * @param defaultValue 默认值
+     * @return 解析后的 double 值
+     */
     private double getDoubleParam(Map<String, Object> params, String key, double defaultValue) {
         if (params.containsKey(key)) {
             Object value = params.get(key);
@@ -290,6 +439,14 @@ public class LyapunovController {
         return defaultValue;
     }
 
+    /**
+     * 从请求参数中读取 int 值，缺失或类型不匹配时使用默认值。
+     *
+     * @param params 请求参数 Map
+     * @param key 参数名
+     * @param defaultValue 默认值
+     * @return 解析后的 int 值
+     */
     private int getIntParam(Map<String, Object> params, String key, int defaultValue) {
         if (params.containsKey(key)) {
             Object value = params.get(key);

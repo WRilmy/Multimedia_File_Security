@@ -3,6 +3,7 @@ package org.example.multimedia_file_security.test;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.distribution.ChiSquaredDistribution;
+import org.example.multimedia_file_security.utils.MediaFormatEffectAnalysisUtil;
 import org.example.multimedia_file_security.utils.Sm4EncryptionUtil;
 import org.example.multimedia_file_security.utils.Sm4Util;
 import org.springframework.stereotype.Component;
@@ -44,6 +45,12 @@ public class EncryptionAttackTest {
             this.details = "";
         }
 
+        /**
+         * 向单个测试结果中追加指标。
+         *
+         * @param key 指标名称
+         * @param value 指标值
+         */
         public void addMetric(String key, Object value) {
             metrics.put(key, value);
         }
@@ -65,6 +72,11 @@ public class EncryptionAttackTest {
             this.summary = new LinkedHashMap<>();
         }
 
+        /**
+         * 将测试项加入报告，并同步维护通过和失败数量。
+         *
+         * @param result 单项测试结果
+         */
         public void addResult(TestResult result) {
             results.add(result);
             totalTests++;
@@ -75,6 +87,9 @@ public class EncryptionAttackTest {
             }
         }
 
+        /**
+         * 根据已加入的测试项计算报告摘要。
+         */
         public void calculateSummary() {
             double passRate = totalTests > 0 ? (double) passedTests / totalTests * 100 : 0;
             summary.put("通过率", String.format("%.2f%%", passRate));
@@ -84,6 +99,19 @@ public class EncryptionAttackTest {
         }
     }
 
+    /**
+     * 按文件类型和加密模式运行完整安全性分析套件。
+     *
+     * @param originalImage 原始图像对象，非图像文件可为 null
+     * @param encryptedImage 密文图像对象，非图像文件或不可解析图像可为 null
+     * @param originalData 原始文件字节
+     * @param encryptedData 密文文件字节
+     * @param encryptionMode 加密模式
+     * @param filename 原始文件名
+     * @param fileType 文件类型，支持 IMAGE、VIDEO、AUDIO
+     * @return 聚合后的测试报告
+     * @throws Exception 当测试过程中格式解析或加密模拟失败时抛出
+     */
     public TestReport runFullTestSuite(BufferedImage originalImage, BufferedImage encryptedImage, byte[] originalData,
                                        byte[] encryptedData, String encryptionMode, String filename, String fileType) throws Exception {
         log.info("开始执行加密攻击测试套件");
@@ -184,9 +212,19 @@ public class EncryptionAttackTest {
         report.addResult(testPlainCipherEntropy(originalData, encryptedData, "图像"));
     }
 
+    /**
+     * 运行视频选择性加密专用分析项。
+     *
+     * @param originalData 原始视频字节
+     * @param encryptedData 密文视频字节
+     * @param report 测试报告对象
+     * @param filename 原始文件名
+     * @throws Exception 当测试项执行失败时抛出
+     */
     private void runSelectiveVideoDomainTests(byte[] originalData, byte[] encryptedData,
                                               TestReport report, String filename) throws Exception {
         // 视频选择性加密专用测试项
+        report.addResult(testMediaFormatPreservationAndDistortion(originalData, encryptedData, filename, "视频"));
         report.addResult(testDataEntropy(null, encryptedData, "SELECTIVE"));
         report.addResult(testCorrelationAnalysis(encryptedData, null, "SELECTIVE"));
         report.addResult(testMediaPlainCipherCorrelation(originalData, encryptedData, "视频"));
@@ -200,9 +238,19 @@ public class EncryptionAttackTest {
         report.addResult(testPlainCipherEntropy(originalData, encryptedData, "视频"));
     }
 
+    /**
+     * 运行音频选择性加密专用分析项。
+     *
+     * @param originalData 原始音频字节
+     * @param encryptedData 密文音频字节
+     * @param report 测试报告对象
+     * @param filename 原始文件名
+     * @throws Exception 当测试项执行失败时抛出
+     */
     private void runSelectiveAudioDomainTests(byte[] originalData, byte[] encryptedData,
                                               TestReport report, String filename) throws Exception {
         // 音频选择性加密专用测试项
+        report.addResult(testMediaFormatPreservationAndDistortion(originalData, encryptedData, filename, "音频"));
         report.addResult(testDataEntropy(null, encryptedData, "SELECTIVE"));
         report.addResult(testChunkEntropyConsistency(encryptedData, "音频"));
         report.addResult(testAvalanche(originalData, "SELECTIVE", encryptedData));
@@ -283,6 +331,104 @@ public class EncryptionAttackTest {
         }
         report.addResult(testTemporalFeatureAnalysis(encryptedData, filename));
         report.addResult(testEnergyDistributionAnalysis(encryptedData, filename));
+    }
+
+    /**
+     * 测试音视频选择性加密后的格式保持和字节扰动情况。
+     *
+     * @param originalData 原始文件字节
+     * @param encryptedData 密文文件字节
+     * @param filename 文件名
+     * @param mediaType 媒体类型显示名称
+     * @return 测试结果
+     */
+    private TestResult testMediaFormatPreservationAndDistortion(byte[] originalData, byte[] encryptedData,
+                                                                String filename, String mediaType) {
+        long startTime = System.currentTimeMillis();
+        TestResult result = new TestResult(mediaType + "格式保持与扰动率分析", true,
+                "检查密文是否仍可被解析为原格式，并统计媒体单元保持率、媒体载荷扰动率和文件哈希变化");
+
+        try {
+            Map<String, Object> analysis = MediaFormatEffectAnalysisUtil.analyze(originalData, encryptedData, filename);
+            Map<String, Object> structure = castMap(analysis.get("structure"));
+            Map<String, Object> distortion = castMap(analysis.get("distortion"));
+
+            result.addMetric("文件格式", analysis.get("format"));
+            result.addMetric("原文件可识别", analysis.get("originalRecognizable"));
+            result.addMetric("密文可识别", analysis.get("encryptedRecognizable"));
+            result.addMetric("原始SHA-256", analysis.get("originalSha256"));
+            result.addMetric("密文SHA-256", analysis.get("encryptedSha256"));
+            result.addMetric("原始视频单元数", structure.get("originalVideoUnits"));
+            result.addMetric("密文视频单元数", structure.get("encryptedVideoUnits"));
+            result.addMetric("原始音频单元数", structure.get("originalAudioUnits"));
+            result.addMetric("密文音频单元数", structure.get("encryptedAudioUnits"));
+            result.addMetric("结构保持率", structure.get("structurePreservationRate") + "%");
+            result.addMetric("全文件字节扰动率", distortion.get("modifiedByteRate") + "%");
+            result.addMetric("媒体载荷扰动率", distortion.get("mediaModifiedByteRate") + "%");
+
+            boolean encryptedRecognizable = Boolean.TRUE.equals(analysis.get("encryptedRecognizable"));
+            double structureRate = getDoubleMetric(structure, "structurePreservationRate");
+            double modifiedRate = getDoubleMetric(distortion, "modifiedByteRate");
+            if (!encryptedRecognizable || structureRate < 99.0 || modifiedRate <= 0.0) {
+                result.setPassed(false);
+            }
+            result.setDetails(String.valueOf(analysis.get("conclusion")));
+        } catch (Exception e) {
+            result.setPassed(false);
+            result.setDetails(mediaType + "格式保持与扰动率分析失败: " + e.getMessage());
+        }
+
+        result.setExecutionTime(System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    /**
+     * 将对象转换为 Map，便于读取嵌套指标。
+     *
+     * @param value 原始对象
+     * @return Map 对象
+     */
+    @SuppressWarnings("unchecked")
+    /**
+     * 将分析结果中的对象安全转换为 Map。
+     *
+     * @param value 待转换对象
+     * @return 转换后的 Map，无法转换时返回空 Map
+     */
+    private Map<String, Object> castMap(Object value) {
+        if (value instanceof Map<?, ?>) {
+            return (Map<String, Object>) value;
+        }
+        return new LinkedHashMap<>();
+    }
+
+    /**
+     * 从指标 Map 中读取 double 数值。
+     *
+     * @param metrics 指标 Map
+     * @param key 指标名称
+     * @return double 数值
+     */
+    /**
+     * 从指标 Map 中读取 double 值。
+     *
+     * @param metrics 指标 Map
+     * @param key 指标名
+     * @return 指标值，缺失或无法解析时返回 0
+     */
+    private double getDoubleMetric(Map<String, Object> metrics, String key) {
+        Object value = metrics.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        if (value != null) {
+            try {
+                return Double.parseDouble(String.valueOf(value));
+            } catch (NumberFormatException ignored) {
+                return 0.0;
+            }
+        }
+        return 0.0;
     }
 
     private TestResult testMediaPlainCipherCorrelation(byte[] originalData, byte[] encryptedData, String mediaType) {
@@ -2580,18 +2726,18 @@ public class EncryptionAttackTest {
         TestResult result = new TestResult("相邻字节相关性分析", true, 
                 "分析" + mediaType + "文件加密前后相邻字节的相关性，用于可视化展示");
 
-        // 采样相邻字节对（最多3000对）
-        int sampleSize = Math.min(3000, Math.min(originalData.length, encryptedData.length) - 1);
-        
+        int dataLen = Math.min(originalData.length, encryptedData.length);
+        int sampleSize = Math.min(3000, dataLen - 1);
+
         List<int[]> plainPairs = new ArrayList<>();
         List<int[]> cipherPairs = new ArrayList<>();
-        
-        // 随机采样
-        java.util.Random random = new java.util.Random(42); // 固定种子保证可重复
-        for (int i = 0; i < sampleSize; i++) {
-            int idx = random.nextInt(Math.min(originalData.length, encryptedData.length) - 1);
-            plainPairs.add(new int[]{originalData[idx] & 0xFF, originalData[idx + 1] & 0xFF});
-            cipherPairs.add(new int[]{encryptedData[idx] & 0xFF, encryptedData[idx + 1] & 0xFF});
+
+        // 连续采样：从数据中间区域开始，跳过文件头
+        int startOffset = Math.max(dataLen / 4, 1);
+        int endOffset = Math.min(startOffset + sampleSize, dataLen - 1);
+        for (int i = startOffset; i < endOffset; i++) {
+            plainPairs.add(new int[]{originalData[i] & 0xFF, originalData[i + 1] & 0xFF});
+            cipherPairs.add(new int[]{encryptedData[i] & 0xFF, encryptedData[i + 1] & 0xFF});
         }
 
         // 计算皮尔逊相关系数

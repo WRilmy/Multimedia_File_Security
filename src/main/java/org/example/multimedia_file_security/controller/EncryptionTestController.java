@@ -5,6 +5,7 @@ import org.example.multimedia_file_security.dto.Result;
 import org.example.multimedia_file_security.service.FileService;
 import org.example.multimedia_file_security.test.EncryptionAttackTest;
 import org.example.multimedia_file_security.threadLocal.UserThreadLocal;
+import org.example.multimedia_file_security.utils.HyperchaoticChenOptimizedUtil;
 import org.example.multimedia_file_security.utils.HyperchaoticChenUtil;
 import org.example.multimedia_file_security.utils.Sm4Util;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -131,16 +132,16 @@ public class EncryptionTestController {
             BufferedImage originalImage = ImageIO.read(file.getInputStream());
 
             // 2. 使用超混沌系统进行加密
-            HyperchaoticChenUtil.ChenKeyStreamConfig config;
-            if ("highLyapunov".equals(configType)) {
-                config = HyperchaoticChenUtil.ChenKeyStreamConfig.highLyapunovConfig();
+            HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config;
+            if ("highCoupling".equals(configType) || "highLyapunov".equals(configType)) {
+                config = HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.highCouplingConfig();
             } else {
-                config = HyperchaoticChenUtil.ChenKeyStreamConfig.defaultConfig();
+                config = HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig.defaultConfig();
             }
             byte[] encryptedData;
             String filename = file.getOriginalFilename();
             if ("FULL".equals(encryptionType)) {
-                encryptedData = HyperchaoticChenUtil.xorEncrypt(originalData, config);
+                encryptedData = HyperchaoticChenOptimizedUtil.xorEncrypt(originalData, config);
             } else if ("SELECTIVE".equals(encryptionType)) {
                 if (filename != null && filename.toLowerCase().endsWith(".avi")) {
                     encryptedData = org.example.multimedia_file_security.utils.AviSelectiveEncryptionUtil.selectiveEncryptAvi(originalData, config);
