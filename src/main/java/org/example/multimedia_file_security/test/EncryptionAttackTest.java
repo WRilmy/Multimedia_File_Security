@@ -3,7 +3,9 @@ package org.example.multimedia_file_security.test;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.distribution.ChiSquaredDistribution;
+import org.example.multimedia_file_security.utils.AviSelectiveEncryptionUtil;
 import org.example.multimedia_file_security.utils.MediaFormatEffectAnalysisUtil;
+import org.example.multimedia_file_security.utils.Mp4SelectiveEncryptionUtil;
 import org.example.multimedia_file_security.utils.Sm4EncryptionUtil;
 import org.example.multimedia_file_security.utils.Sm4Util;
 import org.springframework.stereotype.Component;
@@ -389,12 +391,6 @@ public class EncryptionAttackTest {
      * @return Map 对象
      */
     @SuppressWarnings("unchecked")
-    /**
-     * 将分析结果中的对象安全转换为 Map。
-     *
-     * @param value 待转换对象
-     * @return 转换后的 Map，无法转换时返回空 Map
-     */
     private Map<String, Object> castMap(Object value) {
         if (value instanceof Map<?, ?>) {
             return (Map<String, Object>) value;
@@ -402,13 +398,6 @@ public class EncryptionAttackTest {
         return new LinkedHashMap<>();
     }
 
-    /**
-     * 从指标 Map 中读取 double 数值。
-     *
-     * @param metrics 指标 Map
-     * @param key 指标名称
-     * @return double 数值
-     */
     /**
      * 从指标 Map 中读取 double 值。
      *
@@ -658,11 +647,8 @@ public class EncryptionAttackTest {
         // 分析视频数据中的运动矢量特征
         int motionVectorCount = 0;
         double motionVectorVariance = 0;
-        
-        // 简单的运动矢量特征分析
-        // 实际应用中可以使用专门的视频处理库进行更复杂的分析
+
         if (data.length > 1024) {
-            // 模拟运动矢量分析
             motionVectorCount = data.length / 1024;
             motionVectorVariance = calculateMotionVectorVariance(data);
         }
@@ -1834,8 +1820,13 @@ public class EncryptionAttackTest {
 
         try {
             byte[] modified = Arrays.copyOf(originalData, originalData.length);
-            if (modified.length > 0) {
-                modified[0] ^= 0x01;
+            int perturbOffset = chooseVideoPayloadPerturbOffset(originalData, filename);
+            if (perturbOffset >= 0 && perturbOffset < modified.length) {
+                modified[perturbOffset] ^= 0x01;
+                result.addMetric("扰动偏移", perturbOffset);
+            } else if (modified.length > 0) {
+                modified[modified.length - 1] ^= 0x01;
+                result.addMetric("扰动偏移", modified.length - 1);
             }
 
             String keyBase64 = Base64.getEncoder().encodeToString(Sm4Util.generateSm4Key().getEncoded());
@@ -1860,6 +1851,52 @@ public class EncryptionAttackTest {
 
         result.setExecutionTime(System.currentTimeMillis() - startTime);
         return result;
+    }
+
+    /**
+     * 选择视频差分分析的明文扰动位置。
+     * <p>
+     * 视频容器的文件头和元数据不能随意修改，否则测试样本会先变成非法格式，后续选择性加密无法解析。
+     * 因此 AVI 优先选择视频帧载荷内部，MP4 优先选择 mdat 中的视频 sample 内部。
+     * </p>
+     *
+     * @param data 原始视频字节
+     * @param filename 原始文件名
+     * @return 可扰动的载荷偏移，无法定位时返回文件尾部附近偏移
+     */
+    private int chooseVideoPayloadPerturbOffset(byte[] data, String filename) {
+        if (data == null || data.length == 0) {
+            return -1;
+        }
+
+        String lower = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+        try {
+            if (lower.endsWith(".avi") && AviSelectiveEncryptionUtil.isValidAvi(data)) {
+                AviSelectiveEncryptionUtil.AviInfo info = AviSelectiveEncryptionUtil.parseAvi(data);
+                if (!info.getVideoChunks().isEmpty()) {
+                    AviSelectiveEncryptionUtil.AviChunk chunk = info.getVideoChunks().get(0);
+                    int frameHeaderGuess = Math.min(64, Math.max(0, chunk.getSize() / 4));
+                    int innerOffset = Math.min(chunk.getSize() - 1, Math.max(frameHeaderGuess, chunk.getSize() / 2));
+                    return chunk.getOffset() + innerOffset;
+                }
+            }
+
+            if (lower.endsWith(".mp4") && Mp4SelectiveEncryptionUtil.isValidMp4(data)) {
+                Mp4SelectiveEncryptionUtil.Mp4Info info = Mp4SelectiveEncryptionUtil.parseMp4(data);
+                if (!info.getVideoSamples().isEmpty()) {
+                    Mp4SelectiveEncryptionUtil.MediaSample sample = info.getVideoSamples().get(0);
+                    int innerOffset = Math.min(sample.getSize() - 1, Math.max(0, sample.getSize() / 2));
+                    long offset = sample.getOffset() + innerOffset;
+                    if (offset >= 0 && offset < data.length) {
+                        return (int) offset;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("定位视频差分扰动位置失败，改用保守偏移: {}", e.getMessage());
+        }
+
+        return Math.min(data.length - 1, Math.max(0, data.length / 2));
     }
 
     private double calculateNPCR(BufferedImage img1, BufferedImage img2) {

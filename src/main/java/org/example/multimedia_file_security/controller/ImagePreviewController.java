@@ -449,8 +449,6 @@ public class ImagePreviewController {
     private byte[] generateThumbnail(byte[] originalImage, String filename,
                                      int maxWidth, int maxHeight) {
         try {
-            // 简化实现：直接返回原图
-            // 实际项目中应该使用ImageIO、Thumbnailator等库生成缩略图
 
             if (originalImage.length < 10240 * 10240) { // 小于10MB的图片直接返回
                 return originalImage;

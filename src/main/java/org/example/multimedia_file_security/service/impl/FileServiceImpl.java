@@ -69,7 +69,7 @@ public class FileServiceImpl implements FileService {
         if ("SELECTIVE".equals(encryptionMode) && isImageFile(originalFilename)) {
             // 选择性加密图像：计算像素级哈希
             pixelHash = calculatePixelHash(file.getBytes(), originalFilename);
-            fileHash = pixelHash;  // 文件哈希也用像素哈希（或可以额外存储文件哈希用于其他用途）
+            fileHash = pixelHash;
             log.info("选择性加密模式，计算像素级SM3哈希: {}", pixelHash);
         } else {
             // 全文件加密或其他：计算文件级哈希
@@ -443,7 +443,7 @@ public class FileServiceImpl implements FileService {
                                  String storedPixelHash) throws Exception {
         if (storedPixelHash == null || storedPixelHash.isEmpty()) {
             log.warn("像素哈希记录不存在（可能是旧数据），尝试文件哈希验证");
-            // 降级为文件哈希验证（兼容性处理）
+            // 降级为文件哈希验证
             verifyFileHash(decryptedData, storedPixelHash);
             return;
         }

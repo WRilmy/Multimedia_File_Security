@@ -8,9 +8,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * MP3 parser and format-preserving selective encryption utility.
- */
 @Slf4j
 public class Mp3SelectiveEncryptionUtil {
 
@@ -96,14 +93,26 @@ public class Mp3SelectiveEncryptionUtil {
         }
 
         int start = 0;
-        if (hasId3v2Header(mp3Data)) {
+        boolean hasId3 = hasId3v2Header(mp3Data);
+        if (hasId3) {
             start = getId3v2TagSize(mp3Data);
             if (start < 0 || start >= mp3Data.length) {
                 return false;
             }
         }
 
-        return findNextFrame(mp3Data, start) >= 0;
+        int firstFrame = findNextFrame(mp3Data, start);
+        if (firstFrame < 0) {
+            return false;
+        }
+
+        // 没有 ID3 标签时，MP3 帧通常应从文件起始位置出现；否则在任意二进制数据中搜索同步字容易误判。
+        if (!hasId3 && firstFrame != 0) {
+            return false;
+        }
+
+        Mp3FrameInfo frame = parseFrameHeader(mp3Data, firstFrame);
+        return frame != null && firstFrame + frame.getFrameSize() <= mp3Data.length;
     }
 
     /**

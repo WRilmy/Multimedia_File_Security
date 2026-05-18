@@ -27,10 +27,9 @@ public class Sm4Util {
      */
     public static SecretKey generateSm4Key() throws Exception {
         // 1. 获取SM4算法的密钥生成器实例，并指定使用Bouncy Castle提供者[1,2](@ref)
-        KeyGenerator keyGenerator = KeyGenerator.getInstance("SM4", "BC"); // 或使用 BouncyCastleProvider.PROVIDER_NAME
+        KeyGenerator keyGenerator = KeyGenerator.getInstance("SM4", "BC");
 
         // 2. 初始化密钥生成器，明确指定密钥长度为128位[1,6](@ref)
-        // 也可以传入一个SecureRandom实例来指定随机数源，例如：keyGenerator.init(128, new SecureRandom());
         keyGenerator.init(128);
 
         // 3. 生成并返回密钥

@@ -16,11 +16,6 @@ import java.util.Base64;
 import java.util.Random;
 import java.util.zip.CRC32;
 
-/**
- * JPEG selective encryption utility.
- * The preview remains a valid JPEG, while the exact original JPEG bytes are
- * carried in an encrypted trailer so decryption can recover the original file.
- */
 @Component
 @Slf4j
 public class JpegSelectiveEncryptionUtil {

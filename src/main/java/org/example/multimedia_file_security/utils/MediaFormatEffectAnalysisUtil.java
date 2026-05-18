@@ -54,17 +54,31 @@ public final class MediaFormatEffectAnalysisUtil {
      */
     private static String detectFormat(byte[] data, String filename) {
         String lowerName = filename == null ? "" : filename.toLowerCase();
-        if (lowerName.endsWith(".avi") || AviSelectiveEncryptionUtil.isValidAvi(safeBytes(data))) {
+        if (lowerName.endsWith(".avi")) {
             return "AVI";
         }
-        if (lowerName.endsWith(".mp4") || Mp4SelectiveEncryptionUtil.isValidMp4(safeBytes(data))) {
+        if (lowerName.endsWith(".mp4")) {
             return "MP4";
         }
-        if (lowerName.endsWith(".mp3") || Mp3SelectiveEncryptionUtil.isValidMp3(safeBytes(data))) {
+        if (lowerName.endsWith(".wav")) {
+            return "WAV";
+        }
+        if (lowerName.endsWith(".mp3")) {
             return "MP3";
         }
-        if (lowerName.endsWith(".wav") || WavSelectiveEncryptionUtil.isValidWav(safeBytes(data))) {
+
+        byte[] safeData = safeBytes(data);
+        if (AviSelectiveEncryptionUtil.isValidAvi(safeData)) {
+            return "AVI";
+        }
+        if (Mp4SelectiveEncryptionUtil.isValidMp4(safeData)) {
+            return "MP4";
+        }
+        if (WavSelectiveEncryptionUtil.isValidWav(safeData)) {
             return "WAV";
+        }
+        if (Mp3SelectiveEncryptionUtil.isValidMp3(safeData)) {
+            return "MP3";
         }
         return "UNKNOWN";
     }

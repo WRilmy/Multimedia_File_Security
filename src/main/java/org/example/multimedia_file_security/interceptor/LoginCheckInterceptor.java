@@ -30,7 +30,7 @@ public class LoginCheckInterceptor implements HandlerInterceptor {
             log.info("注册操作，放行。。。");
             return true;
         }
-        if (url.contains("lyapunov")){//Lyapunov指数计算接口，放行（用于前端展示）
+        if (url.contains("lyapunov")){//Lyapunov指数计算接口，放行
             log.info("Lyapunov指数接口，放行。。。");
             return true;
         }

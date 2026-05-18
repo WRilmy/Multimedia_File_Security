@@ -60,7 +60,7 @@ public class FileController {
             String encryptionMode) {
 
         try {
-            // 从请求中获取当前用户ID（这里需要您实现获取用户ID的逻辑）
+            // 从请求中获取当前用户ID
             Long userId = UserThreadLocal.getCurrentId();
 
             if (userId == null) {
@@ -74,7 +74,6 @@ public class FileController {
             // 调用服务层处理文件上传
             Result<?> result = fileService.uploadFile(file, userId, encryptionMode);
 
-            // 记录上传结果
             if (result.getCode() == 200) {
                 log.info("用户[{}]文件上传成功: {}", userId, file.getOriginalFilename());
             } else {
@@ -95,7 +94,6 @@ public class FileController {
             @PathVariable Long fileId) {
 
         try {
-            // 1. 获取当前用户ID
             Long userId = UserThreadLocal.getCurrentId();
             if (userId == null) {
                 return ResponseEntity.status(401)
@@ -103,7 +101,7 @@ public class FileController {
                         .body("用户未登录".getBytes(StandardCharsets.UTF_8));
             }
 
-            // 3. 调用服务层下载文件
+            // 调用服务层下载文件
             Result result = fileService.downloadFile(fileId, userId);
 
             if (result.getCode() != 200) {
@@ -111,18 +109,16 @@ public class FileController {
                         .body(result.getMessage().getBytes(StandardCharsets.UTF_8));
             }
 
-            // 4. 获取下载结果
             FileDownloadDTO downloadResult = (FileDownloadDTO) result.getData();
 
-            // 5. 准备数据
+            // 准备数据
             String originalFilename = downloadResult.getOriginalFilename();
             byte[] fileData = downloadResult.getFileData();
             String fileType = downloadResult.getFileType();
 
-            // ✅ 6. 修复：正确设置响应头
             HttpHeaders headers = new HttpHeaders();
 
-            // 6.1 设置内容类型
+            // 设置内容类型
             if (fileType != null && !fileType.isEmpty()) {
                 headers.setContentType(MediaType.parseMediaType(fileType));
             } else {
@@ -131,19 +127,19 @@ public class FileController {
                 headers.setContentType(MediaType.parseMediaType(contentType));
             }
 
-            // 6.2 设置内容长度
+            // 设置内容长度
             headers.setContentLength(fileData.length);
 
-            // 6.3 ✅ 修复：正确设置Content-Disposition
+            // 正确设置Content-Disposition
             String contentDisposition = createContentDisposition(originalFilename);
             headers.set(HttpHeaders.CONTENT_DISPOSITION, contentDisposition);
 
-            // 6.4 设置缓存控制
+            // 设置缓存控制
             headers.setCacheControl("no-cache, no-store, must-revalidate");
             headers.setPragma("no-cache");
             headers.setExpires(0);
 
-            // 6.5 设置自定义头
+            // 设置自定义头
             headers.set("X-File-Id", fileId.toString());
             headers.set("X-Original-Filename", encodeForHeader(originalFilename));
             headers.set("X-Signature-Valid", String.valueOf(downloadResult.getSignatureValid()));
@@ -184,7 +180,6 @@ public class FileController {
             String encodedFilename = URLEncoder.encode(cleanName, StandardCharsets.UTF_8.name())
                     .replace("+", "%20");
 
-            // ✅ 修复：使用正确的Content-Disposition格式
             // 同时提供两种格式，浏览器会选择合适的
             return String.format(
                     "attachment; filename=\"%s\"; filename*=UTF-8''%s",

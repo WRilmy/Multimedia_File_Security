@@ -9,19 +9,37 @@ import static org.example.multimedia_file_security.utils.Sm4EncryptionUtil.fullE
 import static org.example.multimedia_file_security.utils.Sm4EncryptionUtil.fullDecrypt;
 
 /**
- * 基于四维超混沌 Chen 系统的密钥流工具。
- * 该工具不接入现有上传下载链路，只提供独立的密钥流生成和 XOR 加解密能力，便于单独测试效果。
+ * 基于四维超混沌 Chen 系统的密钥流生成工具类。
+ * 本工具类提供基于经典四维超混沌 Chen 系统的伪随机密钥流生成能力，
+ * 采用四阶龙格-库塔法（RK4）进行数值积分，通过 SHA-256 对混沌状态进行白化处理，
+ * 生成密码学安全的密钥流。支持 XOR 加解密、混合加密（超混沌 + SM4）以及
+ * 李雅普诺夫指数计算等功能
+ * 微分方程组：
+ *   dx/dt = a(y - x) + w
+ *   dy/dt = d*x - x*z + c*y
+ *   dz/dt = x*y - b*z
+ *   dw/dt = x*z + r*w
+ *
+ * @author example
+ * @version 1.0
+ * @see HyperchaoticChenOptimizedUtil
  */
 public final class HyperchaoticChenUtil {
 
+    /** SHA-256 输出块大小：32 字节 */
     private static final int DIGEST_BLOCK_SIZE = 32;
 
+    /**
+     * 私有构造方法，防止实例化。
+     */
     private HyperchaoticChenUtil() {
     }
 
     /**
-     * 四维超混沌 Chen 参数。
-     * 使用者可以只改初值，也可以整体调整参数。
+     * 四维超混沌 Chen 系统配置类。
+     * 封装了 Chen 系统的所有参数，包括系统参数（a, b, c, d, r）、
+     * 初始状态（x0, y0, z0, w0）以及数值积分参数（步长、预热次数、采样间隔）。
+     * 使用者可以只修改初值，也可以整体调整参数
      */
     public static final class ChenKeyStreamConfig {
         private final double a;
@@ -37,6 +55,23 @@ public final class HyperchaoticChenUtil {
         private final int warmupIterations;
         private final int samplingStride;
 
+        /**
+         * 构造配置对象。
+         *
+         * @param a                系统参数 a
+         * @param b                系统参数 b
+         * @param c                系统参数 c
+         * @param d                系统参数 d
+         * @param r                系统参数 r
+         * @param x0               初始值 x0
+         * @param y0               初始值 y0
+         * @param z0               初始值 z0
+         * @param w0               初始值 w0
+         * @param stepSize         RK4 积分步长，必须大于 0
+         * @param warmupIterations 预热迭代次数，必须大于等于 0
+         * @param samplingStride   采样间隔，必须大于 0
+         * @throws IllegalArgumentException 如果参数不满足约束条件
+         */
         public ChenKeyStreamConfig(double a, double b, double c, double d, double r,
                                    double x0, double y0, double z0, double w0,
                                    double stepSize, int warmupIterations, int samplingStride) {
@@ -64,6 +99,14 @@ public final class HyperchaoticChenUtil {
             this.samplingStride = samplingStride;
         }
 
+        /**
+         * 获取默认配置。
+         * 默认参数：a=35.0, b=3.0, c=12.0, d=7.0, r=0.5，
+         * 初值 x0=0.1179, y0=0.2318, z0=0.3361, w0=0.4517，
+         * 步长 0.001，预热 4000 次，采样间隔 3
+         *
+         * @return 默认配置实例
+         */
         public static ChenKeyStreamConfig defaultConfig() {
             return new ChenKeyStreamConfig(
                     35.0, 3.0, 12.0, 7.0, 0.5,
@@ -88,61 +131,133 @@ public final class HyperchaoticChenUtil {
             );
         }
 
+        /**
+         * 获取系统参数 a。
+         *
+         * @return 参数 a
+         */
         public double getA() {
             return a;
         }
 
+        /**
+         * 获取系统参数 b。
+         *
+         * @return 参数 b
+         */
         public double getB() {
             return b;
         }
 
+        /**
+         * 获取系统参数 c。
+         *
+         * @return 参数 c
+         */
         public double getC() {
             return c;
         }
 
+        /**
+         * 获取系统参数 d。
+         *
+         * @return 参数 d
+         */
         public double getD() {
             return d;
         }
 
+        /**
+         * 获取系统参数 r。
+         *
+         * @return 参数 r
+         */
         public double getR() {
             return r;
         }
 
+        /**
+         * 获取初始值 x0。
+         *
+         * @return 初始值 x0
+         */
         public double getX0() {
             return x0;
         }
 
+        /**
+         * 获取初始值 y0。
+         *
+         * @return 初始值 y0
+         */
         public double getY0() {
             return y0;
         }
 
+        /**
+         * 获取初始值 z0。
+         *
+         * @return 初始值 z0
+         */
         public double getZ0() {
             return z0;
         }
 
+        /**
+         * 获取初始值 w0。
+         *
+         * @return 初始值 w0
+         */
         public double getW0() {
             return w0;
         }
 
+        /**
+         * 获取 RK4 积分步长。
+         *
+         * @return 步长
+         */
         public double getStepSize() {
             return stepSize;
         }
 
+        /**
+         * 获取预热迭代次数。
+         *
+         * @return 预热迭代次数
+         */
         public int getWarmupIterations() {
             return warmupIterations;
         }
 
+        /**
+         * 获取采样间隔。
+         *
+         * @return 采样间隔
+         */
         public int getSamplingStride() {
             return samplingStride;
         }
     }
 
+    /**
+     * 四维状态内部类。
+     * 封装 Chen 系统在某一时刻的四个状态变量 (x, y, z, w)。
+     */
     private static final class State {
         private final double x;
         private final double y;
         private final double z;
         private final double w;
 
+        /**
+         * 构造状态对象。
+         *
+         * @param x 状态变量 x
+         * @param y 状态变量 y
+         * @param z 状态变量 z
+         * @param w 状态变量 w
+         */
         private State(double x, double y, double z, double w) {
             this.x = x;
             this.y = y;
@@ -152,8 +267,15 @@ public final class HyperchaoticChenUtil {
     }
 
     /**
-     * 生成指定长度的密钥流。
-     * 先用超混沌 Chen 系统演化状态，再把状态采样结果做 SHA-256 白化，降低直接量化带来的模式残留。
+     * 生成指定长度的密钥流。先用超混沌 Chen 系统演化状态，经过预热迭代后进入混沌吸引子，
+     * 然后按采样间隔进行状态采样，将采样结果通过 SHA-256 白化处理，
+     * 降低直接量化带来的模式残留，最终拼接成所需长度的密钥流
+     *
+     * @param length 所需密钥流长度（字节），必须大于等于 0
+     * @param config 超混沌系统配置
+     * @return 生成的密钥流字节数组
+     * @throws IllegalArgumentException 如果 length 小于 0
+     * @throws RuntimeException         如果密钥流生成过程中发生错误
      */
     public static byte[] generateKeyStream(int length, ChenKeyStreamConfig config) {
         if (length < 0) {
@@ -168,6 +290,7 @@ public final class HyperchaoticChenUtil {
             byte[] keyStream = new byte[length];
             State state = new State(config.getX0(), config.getY0(), config.getZ0(), config.getW0());
 
+            // 预热：让系统进入混沌吸引子
             for (int i = 0; i < config.getWarmupIterations(); i++) {
                 state = rk4Next(state, config);
             }
@@ -175,10 +298,12 @@ public final class HyperchaoticChenUtil {
             int offset = 0;
             long blockCounter = 0L;
             while (offset < length) {
+                // 按采样间隔进行 RK4 迭代
                 for (int i = 0; i < config.getSamplingStride(); i++) {
                     state = rk4Next(state, config);
                 }
 
+                // 白化：SHA-256 输出 32 字节块
                 byte[] block = whitenState(state, blockCounter, digest);
                 int copyLength = Math.min(block.length, length - offset);
                 System.arraycopy(block, 0, keyStream, offset, copyLength);
@@ -193,29 +318,47 @@ public final class HyperchaoticChenUtil {
     }
 
     /**
-     * 对整个字节数组做 XOR 加密。
+     * 对整个字节数组做 XOR 加密。使用超混沌密钥流与明文数据进行逐字节异或运算
+     *
+     * @param plainData 明文数据
+     * @param config    超混沌系统配置
+     * @return 加密后的密文数据
+     * @see #xorDecrypt(byte[], ChenKeyStreamConfig)
      */
     public static byte[] xorEncrypt(byte[] plainData, ChenKeyStreamConfig config) {
         return xorWithKeyStream(plainData, config);
     }
 
     /**
-     * XOR 模式下解密与加密相同。
+     * 对整个字节数组做 XOR 解密。XOR 运算具有自反性，加密和解密使用相同的操作
+     *
+     * @param encryptedData 密文数据
+     * @param config        超混沌系统配置
+     * @return 解密后的明文数据
+     * @see #xorEncrypt(byte[], ChenKeyStreamConfig)
      */
     public static byte[] xorDecrypt(byte[] encryptedData, ChenKeyStreamConfig config) {
         return xorWithKeyStream(encryptedData, config);
     }
 
     /**
-     * 保留图片头部，仅对内容区做 XOR。
-     * 适合你测试“保留部分格式特征，但提升内容区扰动强度”的效果。
+     * 保留图片头部，仅对内容区做 XOR 加密。适合测试"保留部分格式特征，但提升内容区扰动强度"的效果。
+     * @param imageData 图像数据
+     * @param filename  文件名（用于识别文件类型）
+     * @param config    超混沌系统配置
+     * @return 加密后的图像数据（头部保留）
      */
     public static byte[] xorEncryptImagePayload(byte[] imageData, String filename, ChenKeyStreamConfig config) {
         return xorImagePayload(imageData, filename, config);
     }
 
     /**
-     * XOR 模式下解密与加密相同。
+     * 保留图片头部，仅对内容区做 XOR 解密。
+     *
+     * @param encryptedImageData 加密后的图像数据
+     * @param filename           文件名
+     * @param config             超混沌系统配置
+     * @return 解密后的图像数据
      */
     public static byte[] xorDecryptImagePayload(byte[] encryptedImageData, String filename,
                                                 ChenKeyStreamConfig config) {
@@ -223,8 +366,16 @@ public final class HyperchaoticChenUtil {
     }
 
     /**
-     * 混合加密：先混沌加密，再SM4加密
-     * 加密流程：原始数据 -> 超混沌XOR加密 -> SM4-XOR加密 -> 密文
+     * 混合加密：先超混沌 XOR 加密，再 SM4 加密。加密流程：原始数据 → 超混沌 XOR 加密 → SM4 全文件加密 → 密文。
+     * 提供双重保护，即使 SM4 密钥泄露，仍需超混沌密钥流才能解密。
+     *
+     * @param plainData      明文数据
+     * @param chenConfig     超混沌系统配置
+     * @param sm4KeyBase64   Base64 编码的 SM4 密钥
+     * @return 混合加密后的密文数据
+     * @throws IllegalArgumentException 如果 plainData 为 null
+     * @throws RuntimeException         如果加密过程中发生错误
+     * @see #hybridDecrypt(byte[], ChenKeyStreamConfig, String)
      */
     public static byte[] hybridEncrypt(byte[] plainData, ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
         if (plainData == null) {
@@ -239,8 +390,15 @@ public final class HyperchaoticChenUtil {
     }
 
     /**
-     * 混合解密：先SM4解密，再混沌解密
-     * 解密流程：密文 -> SM4-XOR解密 -> 超混沌XOR解密 -> 原始数据
+     * 混合解密：先 SM4 解密，再超混沌 XOR 解密。解密流程：密文 → SM4 全文件解密 → 超混沌 XOR 解密 → 原始数据。
+     *
+     * @param encryptedData  密文数据
+     * @param chenConfig     超混沌系统配置
+     * @param sm4KeyBase64   Base64 编码的 SM4 密钥
+     * @return 解密后的明文数据
+     * @throws IllegalArgumentException 如果 encryptedData 为 null
+     * @throws RuntimeException         如果解密过程中发生错误
+     * @see #hybridEncrypt(byte[], ChenKeyStreamConfig, String)
      */
     public static byte[] hybridDecrypt(byte[] encryptedData, ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
         if (encryptedData == null) {
@@ -255,8 +413,16 @@ public final class HyperchaoticChenUtil {
     }
 
     /**
-     * 混合加密（仅内容区）：先混沌加密内容区，再SM4加密
-     * 保留文件头，仅对内容区进行混合加密
+     * 混合加密（仅内容区）：先超混沌 XOR 加密内容区，再 SM4 加密。保留文件头，仅对内容区进行混合加密。
+     *
+     * @param imageData      图像数据
+     * @param filename       文件名
+     * @param chenConfig     超混沌系统配置
+     * @param sm4KeyBase64   Base64 编码的 SM4 密钥
+     * @return 混合加密后的数据（头部保留）
+     * @throws IllegalArgumentException 如果 imageData 为 null
+     * @throws RuntimeException         如果加密过程中发生错误
+     * @see #hybridDecryptPayload(byte[], String, ChenKeyStreamConfig, String)
      */
     public static byte[] hybridEncryptPayload(byte[] imageData, String filename, 
                                               ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
@@ -282,7 +448,16 @@ public final class HyperchaoticChenUtil {
     }
 
     /**
-     * 混合解密（仅内容区）：先SM4解密内容区，再混沌解密
+     * 混合解密（仅内容区）：先 SM4 解密内容区，再超混沌 XOR 解密。
+     *
+     * @param encryptedImageData 加密后的图像数据
+     * @param filename           文件名
+     * @param chenConfig         超混沌系统配置
+     * @param sm4KeyBase64       Base64 编码的 SM4 密钥
+     * @return 解密后的原始数据
+     * @throws IllegalArgumentException 如果 encryptedImageData 为 null
+     * @throws RuntimeException         如果解密过程中发生错误
+     * @see #hybridEncryptPayload(byte[], String, ChenKeyStreamConfig, String)
      */
     public static byte[] hybridDecryptPayload(byte[] encryptedImageData, String filename,
                                               ChenKeyStreamConfig chenConfig, String sm4KeyBase64) {
@@ -308,7 +483,13 @@ public final class HyperchaoticChenUtil {
     }
 
     /**
-     * 允许外部直接指定保留头长度。
+     * 允许外部直接指定保留头长度进行 XOR 加解密。
+     *
+     * @param data       原始数据
+     * @param headerSize 保留的头部字节数
+     * @param config     超混沌系统配置
+     * @return 处理后的数据（头部保留，其余部分 XOR）
+     * @throws IllegalArgumentException 如果 data 为 null 或 headerSize 超出范围
      */
     public static byte[] xorWithReservedHeader(byte[] data, int headerSize, ChenKeyStreamConfig config) {
         if (data == null) {
@@ -325,6 +506,14 @@ public final class HyperchaoticChenUtil {
         return result;
     }
 
+    /**
+     * 对图像数据进行 XOR 处理（保留头部）。
+     *
+     * @param imageData 图像数据
+     * @param filename  文件名
+     * @param config    超混沌系统配置
+     * @return 处理后的图像数据
+     */
     private static byte[] xorImagePayload(byte[] imageData, String filename, ChenKeyStreamConfig config) {
         if (imageData == null) {
             throw new IllegalArgumentException("imageData must not be null");

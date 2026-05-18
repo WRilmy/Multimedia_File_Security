@@ -64,7 +64,7 @@ public class UserServiceImpl implements UserService {
         String encryptedPassword  = BCryptPasswordUtil.encryptPassword(userRegister.getPassword());
         String encryptedPrivateKey = AESUtil.encryptPrivateKey(keyPair[1]);
 
-        // 4. 数据转换与填充
+        // 6. 数据转换与填充
         User user = new User();
         BeanUtils.copyProperties(userRegister, user);
         user.setPasswordHash(encryptedPassword);
@@ -77,7 +77,7 @@ public class UserServiceImpl implements UserService {
         user.setCreatedAt(Timestamp.valueOf(LocalDateTime.now()));
         user.setUpdatedAt(Timestamp.valueOf(LocalDateTime.now()));
 
-        // 5. 写入数据库
+        // 7. 写入数据库
         try {
             int result = userMapper.insert(user);
             if (result > 0) {

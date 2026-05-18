@@ -151,11 +151,10 @@ public class Sm4EncryptionUtil {
      */
     public static byte[] newFullEncrypt(byte[] fileData, String filename, String sm4Key) throws Exception {
         if (filename != null && isImageFile(filename.toLowerCase())) {
-            // 图像文件：先改进版超混沌Chen XOR加密，再SM4全文件加密
+            // 先改进版超混沌Chen XOR加密，再SM4全文件加密
             HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config = deriveOptimizedChenConfigFromSm4Key(sm4Key);
             return HyperchaoticChenOptimizedUtil.hybridEncrypt(fileData, config, sm4Key);
         }
-        // 非图像文件：保持原有SM4全文件加密
         return fullEncrypt(fileData, sm4Key, "CBC");
     }
 
