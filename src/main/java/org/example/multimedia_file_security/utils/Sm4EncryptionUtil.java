@@ -392,9 +392,6 @@ public class Sm4EncryptionUtil {
         return sb.toString();
     }
 
-    /**
-     * PNG选择性加密（简化版）
-     */
     private static byte[] selectiveEncryptPng(byte[] pngData, String sm4Key) throws Exception {
         return PngSelectiveEncryptionUtil.selectiveEncryptPng(pngData, sm4Key);
     }
@@ -406,9 +403,6 @@ public class Sm4EncryptionUtil {
         return PngSelectiveEncryptionUtil.selectiveDecryptPng(encryptedPngData, sm4Key);
     }
 
-    /**
-     * JPG选择性加密（简化版）
-     */
     private static byte[] selectiveEncryptJpg(byte[] pngData, String sm4Key) throws Exception {
         return JpegSelectiveEncryptionUtil.selectiveEncryptJpeg(pngData, sm4Key);
     }
@@ -738,8 +732,7 @@ public class Sm4EncryptionUtil {
      * @return 需要保留的视频头部字节数
      */
     private static int getVideoHeaderSize(String filename) {
-        // 视频文件头部大小（简化处理）
-        return 1024; // 1KB头部
+        return 1024;
     }
 
     /**

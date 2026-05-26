@@ -216,8 +216,6 @@ public class VideoSelectiveEncryptionUtil {
         if (rbsp.length < 4) return;
 
         try {
-            // 简化的SPS解析（实际需要完整的EBSP解码）
-            // 这里仅提取profile和level
             int profileIdc = rbsp[0] & 0xFF;
             int levelIdc = rbsp[3] & 0xFF;
 
@@ -232,9 +230,6 @@ public class VideoSelectiveEncryptionUtil {
             videoInfo.setProfile(profileStr);
             videoInfo.setLevel(levelIdc);
 
-            // 注意：完整解析宽高需要处理SPS中的seq_parameter_set_data
-            // 这需要更复杂的EBSP到RBSP转换和指数哥伦布解码
-            // 此处简化处理，实际项目中建议使用JCodec等成熟库
             log.debug("SPS解析: profile={}, level={}", profileStr, levelIdc);
 
         } catch (Exception e) {
@@ -302,10 +297,6 @@ public class VideoSelectiveEncryptionUtil {
     private static void encryptSliceNAL(NalUnit slice, Random random) {
         byte[] rbsp = slice.getRbspData();
         if (rbsp.length < 4) return;
-
-        // H.264片层语法元素定位（简化版）
-        // 实际需要解析片头（slice_header）找到系数数据的位置
-        // 这里采用一种简化方法：扰乱RBSP中的非零字节，但避开起始码模拟预防字节
 
         int modifiedBytes = 0;
         boolean inEmulationPrevention = false;
@@ -382,10 +373,6 @@ public class VideoSelectiveEncryptionUtil {
         return crc.getValue();
     }
 
-    /**
-     * 简化的视频加密方法（适用于测试）
-     * 对指定的NAL类型进行加密
-     */
     public static byte[] simpleEncryptVideo(byte[] videoData, String key, int... nalTypesToEncrypt) throws Exception {
         if (nalTypesToEncrypt.length == 0) {
             nalTypesToEncrypt = new int[]{NAL_TYPE_SLICE, NAL_TYPE_IDR_SLICE};

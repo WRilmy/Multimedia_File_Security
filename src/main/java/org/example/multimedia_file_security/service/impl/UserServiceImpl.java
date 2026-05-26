@@ -81,8 +81,6 @@ public class UserServiceImpl implements UserService {
         try {
             int result = userMapper.insert(user);
             if (result > 0) {
-                // 6. 注册后处理（可选：发送欢迎邮件、初始化信息等）
-                postRegisterProcess(user);
                 return Result.success("注册成功");
             } else {
                 return Result.error(500,"注册失败");
@@ -122,14 +120,4 @@ public class UserServiceImpl implements UserService {
         );
         return countByEmail <= 0;
     }
-
-    /**
-     * 注册后处理
-     */
-    private void postRegisterProcess(User user) {
-        // 这里可以实现：发送欢迎邮件、初始化用户信息等
-        System.out.println("用户注册成功，ID: " + user.getId());
-    }
-
-
 }

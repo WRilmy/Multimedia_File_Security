@@ -147,10 +147,6 @@ public class WavSelectiveEncryptionUtil {
         return result;
     }
 
-    /**
-     * 对WAV文件进行全文件加密
-     * 注意：全文件加密后文件将无法直接播放，需要解密后才能播放
-     */
     public static byte[] fullEncryptWav(byte[] wavData, HyperchaoticChenOptimizedUtil.ChenKeyStreamConfig config) {
         return HyperchaoticChenOptimizedUtil.xorWithKeyStream(wavData, config);
     }
